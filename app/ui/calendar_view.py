@@ -482,7 +482,7 @@ class CalendarView(Gtk.Box):
             btn_t_done = Gtk.Button(label="Done ✓")
             btn_t_done.add_css_class("btn-secondary")
             btn_t_done.set_tooltip_text("Mark task as completed")
-            btn_t_done.connect("clicked", lambda b, tid=t.id: self._complete_task(tid, True))
+            btn_t_done.connect("clicked", lambda b, task=t: self._prompt_complete_task(task))
             row.append(btn_t_done)
 
             btn_t_un = Gtk.Button(label="✕")
@@ -885,7 +885,7 @@ class CalendarView(Gtk.Box):
     # ==========================================
     def _build_canvas_item_card(self, item: Task, start_m: int, dur: int, date_str: str) -> Gtk.Widget:
         is_event = (getattr(item, "item_type", "task") == "event")
-        is_open_ended = getattr(item, "is_open_ended", False) or (is_event and item.scheduled_duration is None)
+        is_open_ended = getattr(item, "is_open_ended", False) or (item.scheduled_duration is None)
         now = datetime.now()
         today_str = now.strftime("%Y-%m-%d")
         now_m = now.hour * 60 + now.minute
@@ -912,6 +912,8 @@ class CalendarView(Gtk.Box):
                 frame.add_css_class("calendar-event-card")
         elif is_overdue:
             frame.add_css_class("calendar-task-card-overdue")
+        elif is_open_ended:
+            frame.add_css_class("calendar-task-card-open")
         else:
             frame.add_css_class("calendar-task-card")
         frame.add_css_class("draggable-card")
@@ -969,7 +971,7 @@ class CalendarView(Gtk.Box):
         header_row.append(time_badge)
 
         if is_open_ended and not is_completed:
-            type_badge = Gtk.Label(label="◈ Open-ended")
+            type_badge = Gtk.Label(label="◈ Open-ended" if is_event else f"{item.icon} Open-ended")
         else:
             type_badge = Gtk.Label(label=f"◈ Event" if is_event else f"{item.icon} {item.project}")
         if is_completed:

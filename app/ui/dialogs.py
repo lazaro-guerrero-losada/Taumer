@@ -172,9 +172,6 @@ class NewTaskDialog(Gtk.Window):
                 self.lbl_t.set_text("Event Title")
                 self.title_entry.set_placeholder_text("e.g. Team Standup, Client Call, or Lecture")
                 self.lbl_dur.set_text("Duration (min)")
-                self.open_ended_box.set_visible(True)
-                if not self.chk_open_ended.get_active() and not self.dur_entry.get_text().strip():
-                    self.dur_entry.set_text("60")
                 if not self.date_entry.get_text().strip():
                     self.date_entry.set_text(self.prefill_date or datetime.now().strftime("%Y-%m-%d"))
                 if not self.time_entry.get_text().strip():
@@ -186,10 +183,13 @@ class NewTaskDialog(Gtk.Window):
                 self.lbl_t.set_text("Task Title")
                 self.title_entry.set_placeholder_text("e.g. Design track curve or Study Navier-Stokes")
                 self.lbl_dur.set_text("Planned Slot (min)")
-                self.open_ended_box.set_visible(False)
-                self.dur_entry.set_sensitive(True)
-                if not self.dur_entry.get_text().strip():
-                    self.dur_entry.set_text("30")
+
+            self.open_ended_box.set_visible(True)
+            self.dur_entry.set_sensitive(True)
+            if self.chk_open_ended.get_active():
+                self.dur_entry.set_placeholder_text("Undefined / Open-ended")
+            elif not self.dur_entry.get_text().strip():
+                self.dur_entry.set_text("60" if t_type == "event" else "30")
 
         self.btn_type_task.connect("clicked", lambda b: select_type("task"))
         self.btn_type_event.connect("clicked", lambda b: select_type("event"))
@@ -304,14 +304,17 @@ class NewTaskDialog(Gtk.Window):
         self.lbl_dur.set_halign(Gtk.Align.START)
         
         self.dur_entry = Gtk.Entry()
-        init_open = getattr(self.edit_task, "is_open_ended", False) or (self.edit_task and getattr(self.edit_task, "item_type", "") == "event" and self.edit_task.scheduled_duration is None)
+        if self.edit_task:
+            init_open = getattr(self.edit_task, "is_open_ended", False) or (self.edit_task.scheduled_duration is None)
+        else:
+            init_open = True
         
+        self.dur_entry.set_sensitive(True)
         if init_open:
             self.dur_entry.set_text("")
             self.dur_entry.set_placeholder_text("Undefined / Open-ended")
-            self.dur_entry.set_sensitive(False)
         else:
-            default_dur_val = (self.edit_task.scheduled_duration or self.edit_task.estimated_minutes) if self.edit_task else (60 if self.item_type == "event" else 30)
+            default_dur_val = self.edit_task.scheduled_duration or self.edit_task.estimated_minutes
             self.dur_entry.set_text(str(default_dur_val) if default_dur_val else "30")
             self.dur_entry.set_placeholder_text("e.g. 60" if self.item_type == "event" else "e.g. 30 (visual slot)")
         
@@ -319,26 +322,43 @@ class NewTaskDialog(Gtk.Window):
         dur_box.append(self.lbl_dur)
         dur_box.append(self.dur_entry)
 
-        # Open-ended check for events (know start time, but not end)
+        # Open-ended check for tasks & events (duration undefined, prompt on completion)
         self.open_ended_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.open_ended_box.set_margin_top(2)
-        self.chk_open_ended = Gtk.CheckButton(label="Open-ended (start time known, end unknown)")
+        self.chk_open_ended = Gtk.CheckButton(label="Open-ended (duration undefined, ask when completing)")
         self.chk_open_ended.set_active(init_open)
 
+        self._updating_dur = False
+
         def on_open_toggled(chk):
+            if self._updating_dur:
+                return
             active = chk.get_active()
-            self.dur_entry.set_sensitive(not active)
+            self._updating_dur = True
             if active:
                 self.dur_entry.set_text("")
                 self.dur_entry.set_placeholder_text("Undefined / Open-ended")
             else:
                 if not self.dur_entry.get_text().strip():
                     self.dur_entry.set_text("60" if self.item_type == "event" else "30")
-                self.dur_entry.set_placeholder_text("e.g. 60" if self.item_type == "event" else "e.g. 30 (visual slot)")
+            self._updating_dur = False
+
+        def on_dur_changed(entry):
+            if self._updating_dur:
+                return
+            text = entry.get_text().strip()
+            self._updating_dur = True
+            if text:
+                self.chk_open_ended.set_active(False)
+            else:
+                self.chk_open_ended.set_active(True)
+                self.dur_entry.set_placeholder_text("Undefined / Open-ended")
+            self._updating_dur = False
 
         self.chk_open_ended.connect("toggled", on_open_toggled)
+        self.dur_entry.connect("changed", on_dur_changed)
         self.open_ended_box.append(self.chk_open_ended)
-        self.open_ended_box.set_visible(self.item_type == "event")
+        self.open_ended_box.set_visible(True)
         dur_box.append(self.open_ended_box)
         row2.append(dur_box)
 
@@ -387,13 +407,15 @@ class NewTaskDialog(Gtk.Window):
         prio_names = ["low", "medium", "high"]
         prio = prio_names[prio_idx] if prio_idx < len(prio_names) else "medium"
 
-        is_open_ended = False
-        if self.item_type == "event" and self.chk_open_ended.get_active():
+        dur_text = self.dur_entry.get_text().strip()
+        parsed_dur = parse_duration_input(dur_text, default=0) if dur_text else 0
+
+        if self.chk_open_ended.get_active() or not dur_text or parsed_dur <= 0:
             is_open_ended = True
             dur = None
         else:
-            dur_text = self.dur_entry.get_text().strip()
-            dur = parse_duration_input(dur_text, default=(30 if self.item_type == "task" else 60))
+            is_open_ended = False
+            dur = parsed_dur
 
         raw_date = self.date_entry.get_text().strip()
         sched_date = normalize_date_input(raw_date)
@@ -494,9 +516,10 @@ class TaskCompletionDialog(Gtk.Window):
         lbl_item_title.set_wrap(True)
         title_box.append(lbl_item_title)
 
+        is_open = getattr(self.task, "is_open_ended", False) or (self.task.scheduled_duration is None)
         if self.task.scheduled_time:
             time_info = f"Scheduled: {self.task.scheduled_time}"
-            if self.task.scheduled_duration and not getattr(self.task, "is_open_ended", False):
+            if not is_open and self.task.scheduled_duration:
                 time_info += f" ({self.task.scheduled_duration}m planned slot)"
             else:
                 time_info += " (open-ended)"
@@ -519,15 +542,15 @@ class TaskCompletionDialog(Gtk.Window):
         now = datetime.now()
         today_str = now.strftime("%Y-%m-%d")
         
-        if self.is_event and self.task.scheduled_time and self.task.scheduled_date == today_str:
+        if (self.is_event or is_open) and self.task.scheduled_time and self.task.scheduled_date == today_str:
             sm = parse_time_minutes(self.task.scheduled_time)
             if sm is not None:
                 now_m = now.hour * 60 + now.minute
                 if now_m > sm:
                     suggested_m = max(10, now_m - sm)
-        elif self.task.scheduled_duration and not getattr(self.task, "is_open_ended", False):
+        elif not is_open and self.task.scheduled_duration:
             suggested_m = self.task.scheduled_duration
-        elif self.task.estimated_minutes:
+        elif not is_open and self.task.estimated_minutes:
             suggested_m = self.task.estimated_minutes
 
         # Quick preset chips
