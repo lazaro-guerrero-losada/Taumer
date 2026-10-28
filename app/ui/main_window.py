@@ -47,7 +47,7 @@ class MainWindow(Adw.ApplicationWindow):
         logo_path = Path(__file__).resolve().parent.parent / "taumer.svg"
         if logo_path.exists():
             logo_img = Gtk.Image.new_from_file(str(logo_path))
-            logo_img.set_pixel_size(24)
+            logo_img.set_pixel_size(28)
             brand_box.append(logo_img)
 
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)

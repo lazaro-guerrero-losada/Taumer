@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/taumer.svg" width="220" alt="Taumer Logo" />
+  <img src="app/taumer.svg" width="160" alt="Taumer Logo" />
 </p>
 
 # Taumer 🦈
