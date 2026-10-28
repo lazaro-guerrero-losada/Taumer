@@ -1,0 +1,41 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Local application databases & caches
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# User data & Personal Obsidian Vault Notes
+Diario/
+Reportes/
+Tareas/
+Proyectos/
+
+# Companion live wallpaper daemon & media
+wallpaper/
+*.mp4
+
+# Backups & editor files
+app_backup/
+*backup*
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Obsidian internal vault folder
+.obsidian/
+.trash/

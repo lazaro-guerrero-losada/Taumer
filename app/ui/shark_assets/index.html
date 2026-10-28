@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Taumer — Focus</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #fafbfe;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #0f172a;
+    }
+    #shark-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      z-index: 1;
+      font-family: "Geist Mono", "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+    }
+    .overlay-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      padding: 20px;
+    }
+    .focus-glass-card {
+      pointer-events: auto;
+      width: 560px;
+      max-width: 92%;
+      background: rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(10px) saturate(160%);
+      -webkit-backdrop-filter: blur(10px) saturate(160%);
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      border-radius: 20px;
+      box-shadow: 
+        0 14px 36px rgba(15, 23, 42, 0.035),
+        0 2px 8px rgba(15, 23, 42, 0.02),
+        inset 0 1px 1px rgba(255, 255, 255, 0.65);
+      padding: 18px 22px 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      position: relative;
+      transition: box-shadow 0.25s ease, transform 0.25s ease, background 0.25s ease;
+    }
+    .focus-glass-card:focus-within {
+      background: rgba(255, 255, 255, 0.24);
+      box-shadow: 
+        0 20px 48px rgba(15, 23, 42, 0.06),
+        0 4px 12px rgba(15, 23, 42, 0.03),
+        inset 0 1px 1px rgba(255, 255, 255, 0.75);
+      transform: translateY(-2px);
+    }
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .title-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title {
+      font-size: 19px;
+      font-weight: 350;
+      letter-spacing: -0.4px;
+      color: #1e293b;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      background: rgba(0, 0, 0, 0.05);
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .badge.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #059669;
+    }
+    .badge-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .badge.active .badge-dot {
+      animation: pulse-dot 1.8s infinite;
+    }
+    @keyframes pulse-dot {
+      0% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.2); }
+      100% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    /* Task Slot Container */
+    .task-slots-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .task-slot {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+    .task-slot.parallel {
+      border-top: 1px dashed rgba(0, 0, 0, 0.08);
+      padding-top: 12px;
+    }
+
+    .input-box {
+      background: rgba(255, 255, 255, 0.32);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 12px;
+      padding: 7px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .input-box:focus-within {
+      background: rgba(255, 255, 255, 0.55);
+      border-color: rgba(0, 0, 0, 0.14);
+    }
+    .task-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: 15px;
+      color: #0f172a;
+      font-family: inherit;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .task-input::placeholder {
+      color: #94a3b8;
+      font-weight: 400;
+    }
+
+    .deploy-btn {
+      appearance: none;
+      border: 1px solid rgba(0, 0, 0, 0.07);
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #475569;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+    .deploy-btn:hover {
+      background: rgba(255, 255, 255, 0.9);
+      color: #0f172a;
+      border-color: rgba(0, 0, 0, 0.14);
+    }
+
+    /* Custom Project Dropdown (Rounded Square with Soft Gray Selection) */
+    .custom-select-wrapper {
+      position: relative;
+    }
+    .custom-select-btn {
+      appearance: none;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(0, 0, 0, 0.07);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #334155;
+      font-weight: 500;
+      outline: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .custom-select-btn:hover {
+      background: rgba(255, 255, 255, 0.9);
+      border-color: rgba(0, 0, 0, 0.14);
+    }
+    .custom-dropdown-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      min-width: 155px;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+      padding: 5px;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 60;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .custom-dropdown-menu.open {
+      display: flex;
+    }
+    .custom-dropdown-item {
+      padding: 6px 10px;
+      font-size: 12px;
+      color: #1e293b;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background 0.12s;
+    }
+    .custom-dropdown-item:hover {
+      background: rgba(0, 0, 0, 0.06);
+      color: #0f172a;
+    }
+    .custom-dropdown-item.selected {
+      background: rgba(0, 0, 0, 0.08);
+      font-weight: 600;
+      color: #0f172a;
+    }
+
+    /* Floating Deployable Tasks Panel */
+    .tasks-deploy-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 14px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+      padding: 8px;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      z-index: 50;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .tasks-deploy-panel.open {
+      display: flex;
+    }
+    .deploy-task-item {
+      padding: 7px 12px;
+      font-size: 13px;
+      color: #1e293b;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background 0.15s;
+    }
+    .deploy-task-item:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+    .deploy-task-proj {
+      font-size: 11px;
+      color: #64748b;
+      background: rgba(0, 0, 0, 0.04);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Timer Row & Split-Flap Airport Style (White BG + Black Font) */
+    .timer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .timer-airport {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .flap-cell {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 19px;
+      height: 27px;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: "Geist Mono", "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 16px;
+      font-weight: 700;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 0, 0, 0.10);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      position: relative;
+    }
+    .flap-cell::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.10);
+    }
+    .flap-colon {
+      font-family: "Geist Mono", "JetBrains Mono", monospace;
+      font-size: 16px;
+      font-weight: 700;
+      color: #475569;
+      margin: 0 1px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Controls (White BG + Black Fill, Perfectly Centered) */
+    .timer-controls {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .btn-icon {
+      appearance: none;
+      border: 1px solid rgba(0, 0, 0, 0.10);
+      outline: none;
+      cursor: pointer;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #ffffff;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      padding: 0;
+      margin: 0;
+      line-height: 0;
+      transition: all 0.15s ease;
+    }
+    .btn-icon:hover {
+      background: #f8fafc;
+      border-color: rgba(0, 0, 0, 0.18);
+      transform: scale(1.06);
+    }
+    .btn-icon:active {
+      transform: scale(0.92);
+      background: #f1f5f9;
+    }
+    .btn-icon:disabled {
+      opacity: 0.32;
+      cursor: default;
+      pointer-events: none;
+    }
+    .btn-icon svg {
+      display: block;
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    .icon-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      line-height: 0;
+    }
+
+    /* Subtle author attribution link in bottom right corner */
+    .repo-credit {
+      position: fixed;
+      bottom: 12px;
+      right: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #94a3b8;
+      font-size: 11px;
+      text-decoration: none;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Ubuntu", sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.1px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.45);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      transition: all 0.15s ease;
+      z-index: 40;
+    }
+    .repo-credit:hover {
+      color: #334155;
+      background: rgba(255, 255, 255, 0.85);
+      border-color: rgba(0, 0, 0, 0.12);
+      transform: translateY(-1px);
+    }
+    .repo-icon {
+      width: 12px;
+      height: 12px;
+      fill: currentColor;
+      opacity: 0.85;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="shark-canvas"></canvas>
+
+  <div class="overlay-container">
+    <div class="focus-glass-card">
+      <div class="header-row">
+        <div class="title-box">
+          <h1 class="title">What are you working on?</h1>
+        </div>
+        <div class="header-actions">
+          <button class="btn-icon btn-add-parallel" id="btn-add-task" title="Add parallel task">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <div class="badge" id="status-badge">
+            <span class="badge-dot"></span>
+            <span id="badge-text">Idle</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task Slots Container (Supports Primary & Parallel Tasks) -->
+      <div class="task-slots-list" id="task-slots-list">
+        <!-- Main Task Slot 0 -->
+        <div class="task-slot" id="slot-0">
+          <div class="input-box">
+            <input 
+              type="text" 
+              class="task-input" 
+              id="task-input-0" 
+              placeholder="Focus task or concept..." 
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button class="deploy-btn" id="btn-deploy-tasks-0" title="Pick from pending tasks" style="display: none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+              </svg>
+              <span id="deploy-task-count-0">0</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div class="custom-select-wrapper">
+              <button type="button" class="custom-select-btn" id="btn-project-select-0">
+                <span id="proj-selected-name-0">General</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="custom-dropdown-menu" id="project-dropdown-menu-0"></div>
+            </div>
+
+            <!-- Deployable Floating Tasks List -->
+            <div class="tasks-deploy-panel" id="tasks-deploy-panel-0"></div>
+          </div>
+
+          <div class="timer-row">
+            <!-- Airport Split-Flap White Background / Black Font Display -->
+            <div class="timer-airport" id="airport-0">
+              <span class="flap-cell" id="f0-h1">0</span>
+              <span class="flap-cell" id="f0-h2">0</span>
+              <span class="flap-colon">:</span>
+              <span class="flap-cell" id="f0-m1">0</span>
+              <span class="flap-cell" id="f0-m2">0</span>
+              <span class="flap-colon">:</span>
+              <span class="flap-cell" id="f0-s1">0</span>
+              <span class="flap-cell" id="f0-s2">0</span>
+            </div>
+
+            <div class="timer-controls">
+              <!-- Play / Pause: White BG + Black Triangle (Centroid Aligned) -->
+              <button class="btn-icon btn-start" id="btn-toggle-0" title="Start / Pause">
+                <span class="icon-wrap" id="icon-toggle-0">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="7.5,5 18,12 7.5,19"></polygon>
+                  </svg>
+                </span>
+              </button>
+              <!-- Stop: White BG + Black Square -->
+              <button class="btn-icon btn-stop" id="btn-stop-0" title="Stop timing" disabled>
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+              </button>
+              <!-- Log Task: White BG + Black Tick -->
+              <button class="btn-icon btn-save" id="btn-save-0" title="Log session" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </button>
+              <!-- Delete / Discard: White BG + Black X -->
+              <button class="btn-icon btn-reset" id="btn-reset-0" title="Discard session" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Optional Parallel Task Slot 1 -->
+        <div class="task-slot parallel" id="slot-1" style="display: none;">
+          <div class="input-box">
+            <input 
+              type="text" 
+              class="task-input" 
+              id="task-input-1" 
+              placeholder="Parallel focus task..." 
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button class="deploy-btn" id="btn-deploy-tasks-1" title="Pick from pending tasks" style="display: none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+              </svg>
+              <span id="deploy-task-count-1">0</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div class="custom-select-wrapper">
+              <button type="button" class="custom-select-btn" id="btn-project-select-1">
+                <span id="proj-selected-name-1">General</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="custom-dropdown-menu" id="project-dropdown-menu-1"></div>
+            </div>
+
+            <div class="tasks-deploy-panel" id="tasks-deploy-panel-1"></div>
+          </div>
+
+          <div class="timer-row">
+            <div class="timer-airport" id="airport-1">
+              <span class="flap-cell" id="f1-h1">0</span>
+              <span class="flap-cell" id="f1-h2">0</span>
+              <span class="flap-colon">:</span>
+              <span class="flap-cell" id="f1-m1">0</span>
+              <span class="flap-cell" id="f1-m2">0</span>
+              <span class="flap-colon">:</span>
+              <span class="flap-cell" id="f1-s1">0</span>
+              <span class="flap-cell" id="f1-s2">0</span>
+            </div>
+
+            <div class="timer-controls">
+              <button class="btn-icon btn-start" id="btn-toggle-1" title="Start / Pause">
+                <span class="icon-wrap" id="icon-toggle-1">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="7.5,5 18,12 7.5,19"></polygon>
+                  </svg>
+                </span>
+              </button>
+              <button class="btn-icon btn-stop" id="btn-stop-1" title="Stop timing" disabled>
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+              </button>
+              <button class="btn-icon btn-save" id="btn-save-1" title="Log session" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </button>
+              <button class="btn-icon btn-reset" id="btn-reset-1" title="Remove parallel task">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom-Right Attribution to ASCII Sharks GitHub Repository (MIT License) -->
+  <a class="repo-credit" href="https://github.com/stackedlol/ascii-sharks" target="_blank" onclick="openRepo(event)" title="ASCII Sharks by stackedlol (MIT License)">
+    <svg class="repo-icon" viewBox="0 0 24 24">
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+    </svg>
+    <span>ASCII Sharks by stackedlol</span>
+  </a>
+
+  <script src="sharks.js"></script>
+  <script>
+    // 1. Init ASCII Sharks Engine
+    const canvas = document.getElementById("shark-canvas");
+    const engine = new window.OceanEngine(canvas, [
+      { kind: "hammerhead", size: 1.0 },
+      { kind: "classic", size: 0.88 },
+      { kind: "thresher", size: 0.92 },
+      { kind: "mako", size: 0.78 }
+    ]);
+
+    // Available projects and tasks cache
+    let availableProjects = ["General"];
+    let pendingTasksList = [];
+
+    // SVGs for play and pause
+    const PLAY_SVG_HTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="7.5,5 18,12 7.5,19"></polygon></svg>';
+    const PAUSE_SVG_HTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="3.5" height="14" rx="1"></rect><rect x="14.5" y="5" width="3.5" height="14" rx="1"></rect></svg>';
+
+    // Slots state
+    const slots = [
+      {
+        id: 0,
+        running: false,
+        seconds: 0,
+        interval: null,
+        taskId: null,
+        project: "General",
+        title: ""
+      },
+      {
+        id: 1,
+        active: false,
+        running: false,
+        seconds: 0,
+        interval: null,
+        taskId: null,
+        project: "General",
+        title: ""
+      }
+    ];
+
+    const statusBadge = document.getElementById("status-badge");
+    const badgeText = document.getElementById("badge-text");
+    const btnAddTask = document.getElementById("btn-add-task");
+    const slot1El = document.getElementById("slot-1");
+
+    function notifyPython(msg) {
+      try {
+        const handler = window.webkit && window.webkit.messageHandlers && (window.webkit.messageHandlers.taumer || window.webkit.messageHandlers.trazos);
+        if (handler) {
+          handler.postMessage(JSON.stringify(msg));
+        }
+      } catch (err) {
+        console.log("Python message:", msg, err);
+      }
+    }
+
+    function updateBadge() {
+      const anyRunning = slots[0].running || (slots[1].active && slots[1].running);
+      const anySeconds = slots[0].seconds > 0 || (slots[1].active && slots[1].seconds > 0);
+
+      if (anyRunning) {
+        statusBadge.classList.add("active");
+        badgeText.textContent = "Focusing";
+      } else if (anySeconds) {
+        statusBadge.classList.remove("active");
+        badgeText.textContent = "Paused";
+      } else {
+        statusBadge.classList.remove("active");
+        badgeText.textContent = "Idle";
+      }
+    }
+
+    function renderSlotFlap(slotIdx) {
+      const slot = slots[slotIdx];
+      const h = Math.floor(slot.seconds / 3600);
+      const m = Math.floor((slot.seconds % 3600) / 60);
+      const s = slot.seconds % 60;
+
+      const sh = String(h).padStart(2, '0');
+      const sm = String(m).padStart(2, '0');
+      const ss = String(s).padStart(2, '0');
+
+      document.getElementById(`f${slotIdx}-h1`).textContent = sh[0];
+      document.getElementById(`f${slotIdx}-h2`).textContent = sh[1];
+      document.getElementById(`f${slotIdx}-m1`).textContent = sm[0];
+      document.getElementById(`f${slotIdx}-m2`).textContent = sm[1];
+      document.getElementById(`f${slotIdx}-s1`).textContent = ss[0];
+      document.getElementById(`f${slotIdx}-s2`).textContent = ss[1];
+
+      const iconToggle = document.getElementById(`icon-toggle-${slotIdx}`);
+      const btnStop = document.getElementById(`btn-stop-${slotIdx}`);
+      const btnSave = document.getElementById(`btn-save-${slotIdx}`);
+      const btnReset = document.getElementById(`btn-reset-${slotIdx}`);
+
+      if (slot.running) {
+        iconToggle.innerHTML = PAUSE_SVG_HTML;
+        btnStop.disabled = false;
+        btnSave.disabled = false;
+        btnReset.disabled = false;
+      } else {
+        iconToggle.innerHTML = PLAY_SVG_HTML;
+        btnStop.disabled = (slot.seconds === 0);
+        btnSave.disabled = (slot.seconds === 0);
+        if (slotIdx === 0) {
+          btnReset.disabled = (slot.seconds === 0);
+        } else {
+          btnReset.disabled = false;
+        }
+      }
+
+      updateBadge();
+    }
+
+    function toggleTimer(slotIdx) {
+      const slot = slots[slotIdx];
+      const input = document.getElementById(`task-input-${slotIdx}`);
+      slot.title = input.value.trim();
+
+      if (slot.running) {
+        // Pause
+        slot.running = false;
+        clearInterval(slot.interval);
+        slot.interval = null;
+        renderSlotFlap(slotIdx);
+        notifyPython({ action: "pause_timer", slot: slotIdx, seconds: slot.seconds });
+      } else {
+        // Start
+        slot.running = true;
+        slot.interval = setInterval(() => {
+          slot.seconds++;
+          renderSlotFlap(slotIdx);
+          if (slot.seconds % 10 === 0) {
+            notifyPython({
+              action: "tick",
+              slot: slotIdx,
+              seconds: slot.seconds,
+              title: slot.title,
+              project: slot.project,
+              taskId: slot.taskId
+            });
+          }
+        }, 1000);
+        renderSlotFlap(slotIdx);
+        notifyPython({
+          action: "start_timer",
+          slot: slotIdx,
+          seconds: slot.seconds,
+          title: slot.title,
+          project: slot.project,
+          taskId: slot.taskId
+        });
+      }
+    }
+
+    function stopTimer(slotIdx) {
+      const slot = slots[slotIdx];
+      if (slot.running) {
+        slot.running = false;
+        clearInterval(slot.interval);
+        slot.interval = null;
+      }
+      renderSlotFlap(slotIdx);
+      notifyPython({ action: "stop_timer", slot: slotIdx, seconds: slot.seconds });
+    }
+
+    function saveSession(slotIdx) {
+      const slot = slots[slotIdx];
+      if (slot.seconds === 0) return;
+      const input = document.getElementById(`task-input-${slotIdx}`);
+      const title = input.value.trim() || (slotIdx === 0 ? "Focus Session" : "Parallel Session");
+      const seconds = slot.seconds;
+
+      if (slot.running) {
+        clearInterval(slot.interval);
+        slot.interval = null;
+        slot.running = false;
+      }
+
+      notifyPython({
+        action: "save_session",
+        slot: slotIdx,
+        title: title,
+        project: slot.project,
+        seconds: seconds,
+        taskId: slot.taskId
+      });
+
+      slot.seconds = 0;
+      slot.taskId = null;
+      input.value = "";
+      renderSlotFlap(slotIdx);
+
+      if (slotIdx === 1) {
+        removeParallelSlot();
+      }
+    }
+
+    function resetTimer(slotIdx) {
+      const slot = slots[slotIdx];
+      if (slot.running) {
+        clearInterval(slot.interval);
+        slot.interval = null;
+        slot.running = false;
+      }
+
+      if (slotIdx === 1) {
+        removeParallelSlot();
+      } else {
+        slot.seconds = 0;
+        slot.taskId = null;
+        renderSlotFlap(0);
+      }
+      notifyPython({ action: "reset_timer", slot: slotIdx });
+    }
+
+    function addParallelSlot() {
+      slots[1].active = true;
+      slots[1].seconds = 0;
+      slots[1].running = false;
+      slot1El.style.display = "flex";
+      btnAddTask.style.display = "none";
+      renderSlotFlap(1);
+      document.getElementById("task-input-1").focus();
+    }
+
+    function removeParallelSlot() {
+      slots[1].active = false;
+      if (slots[1].running) {
+        clearInterval(slots[1].interval);
+        slots[1].interval = null;
+        slots[1].running = false;
+      }
+      slots[1].seconds = 0;
+      slots[1].taskId = null;
+      document.getElementById("task-input-1").value = "";
+      slot1El.style.display = "none";
+      btnAddTask.style.display = "flex";
+      updateBadge();
+    }
+
+    btnAddTask.addEventListener("click", addParallelSlot);
+
+    // Setup events for both slots
+    [0, 1].forEach((i) => {
+      const input = document.getElementById(`task-input-${i}`);
+      const btnToggle = document.getElementById(`btn-toggle-${i}`);
+      const btnStop = document.getElementById(`btn-stop-${i}`);
+      const btnSave = document.getElementById(`btn-save-${i}`);
+      const btnReset = document.getElementById(`btn-reset-${i}`);
+      const btnDeploy = document.getElementById(`btn-deploy-tasks-${i}`);
+      const tasksPanel = document.getElementById(`tasks-deploy-panel-${i}`);
+      const btnProj = document.getElementById(`btn-project-select-${i}`);
+      const projMenu = document.getElementById(`project-dropdown-menu-${i}`);
+
+      btnToggle.addEventListener("click", () => toggleTimer(i));
+      btnStop.addEventListener("click", () => stopTimer(i));
+      btnSave.addEventListener("click", () => saveSession(i));
+      btnReset.addEventListener("click", () => resetTimer(i));
+
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          if (!slots[i].running) toggleTimer(i);
+        }
+      });
+
+      input.addEventListener("input", () => {
+        slots[i].title = input.value;
+        notifyPython({ action: "input_changed", slot: i, title: input.value });
+      });
+
+      btnDeploy.addEventListener("click", (e) => {
+        e.stopPropagation();
+        tasksPanel.classList.toggle("open");
+        projMenu.classList.remove("open");
+      });
+
+      btnProj.addEventListener("click", (e) => {
+        e.stopPropagation();
+        projMenu.classList.toggle("open");
+        tasksPanel.classList.remove("open");
+      });
+    });
+
+    document.addEventListener("click", () => {
+      [0, 1].forEach((i) => {
+        document.getElementById(`tasks-deploy-panel-${i}`)?.classList.remove("open");
+        document.getElementById(`project-dropdown-menu-${i}`)?.classList.remove("open");
+      });
+    });
+
+    function renderProjectMenus() {
+      [0, 1].forEach((slotIdx) => {
+        const menu = document.getElementById(`project-dropdown-menu-${slotIdx}`);
+        const label = document.getElementById(`proj-selected-name-${slotIdx}`);
+        if (!menu) return;
+        menu.innerHTML = "";
+
+        availableProjects.forEach((projName) => {
+          const item = document.createElement("div");
+          item.className = "custom-dropdown-item";
+          if (projName === slots[slotIdx].project) {
+            item.classList.add("selected");
+          }
+          item.textContent = projName;
+          item.addEventListener("click", (e) => {
+            e.stopPropagation();
+            slots[slotIdx].project = projName;
+            label.textContent = projName;
+            menu.classList.remove("open");
+            renderProjectMenus();
+            notifyPython({ action: "project_changed", slot: slotIdx, project: projName });
+          });
+          menu.appendChild(item);
+        });
+      });
+    }
+
+    function renderPendingTasks() {
+      [0, 1].forEach((slotIdx) => {
+        const panel = document.getElementById(`tasks-deploy-panel-${slotIdx}`);
+        const btnDeploy = document.getElementById(`btn-deploy-tasks-${slotIdx}`);
+        const countSpan = document.getElementById(`deploy-task-count-${slotIdx}`);
+        if (!panel || !btnDeploy) return;
+
+        panel.innerHTML = "";
+        if (!pendingTasksList || pendingTasksList.length === 0) {
+          btnDeploy.style.display = "none";
+          return;
+        }
+
+        btnDeploy.style.display = "flex";
+        countSpan.textContent = pendingTasksList.length;
+
+        pendingTasksList.forEach((t) => {
+          const item = document.createElement("div");
+          item.className = "deploy-task-item";
+          item.innerHTML = `
+            <span>${t.title}</span>
+            <span class="deploy-task-proj">${t.project}</span>
+          `;
+          item.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const input = document.getElementById(`task-input-${slotIdx}`);
+            input.value = t.title;
+            slots[slotIdx].title = t.title;
+            slots[slotIdx].taskId = t.id;
+            if (t.project) {
+              slots[slotIdx].project = t.project;
+              document.getElementById(`proj-selected-name-${slotIdx}`).textContent = t.project;
+            }
+            panel.classList.remove("open");
+            if (!slots[slotIdx].running) toggleTimer(slotIdx);
+          });
+          panel.appendChild(item);
+        });
+      });
+    }
+
+    // Python Integration APIs:
+    window.setProjects = function(projectsList) {
+      if (Array.isArray(projectsList) && projectsList.length > 0) {
+        availableProjects = projectsList;
+        renderProjectMenus();
+      }
+    };
+
+    window.setPendingTasks = function(tasksList) {
+      pendingTasksList = tasksList || [];
+      renderPendingTasks();
+    };
+
+    window.syncTimerState = function(state) {
+      const slot = slots[0];
+      const input = document.getElementById("task-input-0");
+      if (state.title !== undefined && !input.matches(":focus")) {
+        input.value = state.title;
+        slot.title = state.title;
+      }
+      if (state.project !== undefined) {
+        slot.project = state.project;
+        document.getElementById("proj-selected-name-0").textContent = state.project;
+      }
+      if (state.seconds !== undefined) {
+        slot.seconds = state.seconds;
+      }
+      if (state.taskId !== undefined) {
+        slot.taskId = state.taskId;
+      }
+      if (state.running !== undefined && state.running !== slot.running) {
+        if (state.running) {
+          if (!slot.interval) {
+            slot.interval = setInterval(() => {
+              slot.seconds++;
+              renderSlotFlap(0);
+            }, 1000);
+          }
+          slot.running = true;
+        } else {
+          if (slot.interval) clearInterval(slot.interval);
+          slot.interval = null;
+          slot.running = false;
+        }
+      }
+      renderSlotFlap(0);
+    };
+
+    window.startWithTask = function(task) {
+      const input = document.getElementById("task-input-0");
+      input.value = task.title || "";
+      slots[0].title = task.title || "";
+      if (task.project) {
+        slots[0].project = task.project;
+        document.getElementById("proj-selected-name-0").textContent = task.project;
+      }
+      slots[0].taskId = task.id;
+      if (!slots[0].running) {
+        toggleTimer(0);
+      }
+    };
+
+    function openRepo(e) {
+      if (e) e.preventDefault();
+      const url = "https://github.com/stackedlol/ascii-sharks";
+      const handler = window.webkit && window.webkit.messageHandlers && (window.webkit.messageHandlers.taumer || window.webkit.messageHandlers.trazos);
+      if (handler) {
+        handler.postMessage({ action: "open_url", url: url });
+      } else {
+        window.open(url, "_blank");
+      }
+    }
+
+    // Initial render
+    renderProjectMenus();
+    renderSlotFlap(0);
+  </script>
+</body>
+</html>

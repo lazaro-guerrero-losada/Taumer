@@ -1,0 +1,722 @@
+/* Taumer — Minimalist Light Theme with Muted ASCII Shark Secondary Accents
+   Palette derived strictly from the shark cells:
+   - Neutral Gray: #475569, #64748b, #cbd5e1
+   - Grey-Pink (Dusty Mauve): #947885, #826674, #f8eff2
+   - Gray-Green / Olive-Brown (Muted Sage & Taupe): #6b7768, #525d50, #f0f4ef, #7d6f62
+   - Deep Slate Typography: #1e293b, #0f172a
+   - Clean, quiet background (#f5f5f7) across working tabs.
+   - ASCII Sharks exclusive to Home and Calendar (behind translucent canvas).
+*/
+
+/* 1. Global Window & Content Views (Clean, smooth light background - NO grid here) */
+window, .background, .content-view, stack {
+    background-color: #f5f5f7;
+    color: #1e293b;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Ubuntu", "Segoe UI", Roboto, sans-serif;
+}
+
+/* 2. Top Header Bar */
+headerbar {
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5e5ea;
+    color: #1e293b;
+    min-height: 48px;
+    padding: 0 14px;
+}
+
+headerbar .title {
+    font-weight: 700;
+    font-size: 14px;
+    color: #1e293b;
+    letter-spacing: -0.2px;
+}
+
+headerbar .subtitle {
+    font-size: 11px;
+    color: #86868b;
+    font-weight: 500;
+}
+
+/* 3. Sidebar Navigation (Clean macOS Style - No Colored C-Shape) */
+.sidebar-box {
+    background-color: #ebebef;
+    border-right: 1px solid #dcdce0;
+    padding: 12px 10px;
+}
+
+.nav-button {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: #636366;
+    font-weight: 500;
+    font-size: 13px;
+    transition: all 120ms ease;
+}
+
+.nav-button:hover {
+    background-color: #e2e2e7;
+    color: #1e293b;
+}
+
+.nav-button.active {
+    background-color: #ffffff;
+    color: #1e293b;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    /* Clean active state without any colored border or C-shape */
+    border: none;
+}
+
+/* 4. Cards & Surfaces (Clean Minimalist White Surfaces) */
+box.card-box, .card-box {
+    background-color: #ffffff;
+    border: 1px solid #e5e5ea;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin: 3px 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    transition: all 120ms ease;
+}
+
+box.card-box:hover, .card-box:hover {
+    border-color: #d1d1d6;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+box.card-box-accent, .card-box-accent {
+    background-color: #fbfbfd;
+    border: 1px solid #e0e0e5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* 5. Typography */
+.text-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
+    letter-spacing: -0.2px;
+}
+
+.text-heading {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.3px;
+}
+
+.text-muted {
+    font-size: 12px;
+    color: #86868b;
+}
+
+.text-mono {
+    font-family: "Geist Mono", "JetBrains Mono", "SF Mono", "Ubuntu Mono", monospace;
+    font-size: 12px;
+    color: #475569;
+}
+
+/* 6. Badges, Tags & Status Pills (Muted Shark Secondary Palette) */
+/* Neutral Shark Gray */
+.tag-pill {
+    background-color: #f1f3f5;
+    color: #475569;
+    border: 1px solid #dcdfe3;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* Shark Grey-Pink (Dusty Mauve) for high priority / attention */
+.tag-pill-high {
+    background-color: #f8eff2;
+    color: #826674;
+    border: 1px solid #e5d2da;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Shark Gray-Slate for projects */
+.tag-pill-project {
+    background-color: #f3f3f5;
+    color: #334155;
+    border: 1px solid #dcdce0;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Shark Gray-Green / Sage for Active & Success */
+.tag-pill-success, .status-pill-active {
+    background-color: #f0f4ef;
+    color: #4d594b;
+    border: 1px solid #d4ded3;
+    border-radius: 9999px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Shark Gray-Brown / Taupe for alerts / break compliance */
+.tag-pill-alert {
+    background-color: #f7f4f0;
+    color: #7d6f62;
+    border: 1px solid #e3ded8;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.tag-pill-completed {
+    background-color: #e5e5ea;
+    color: #636366;
+    border: 1px solid #d1d1d6;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.status-pill-idle {
+    background-color: #f2f2f5;
+    color: #64748b;
+    border: 1px solid #e0e0e5;
+    border-radius: 9999px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.status-pill-done {
+    background-color: #f2f4f1;
+    color: #556253;
+    border: 1px solid #d6ded4;
+    border-radius: 9999px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* 7. Buttons (Clean Apple / Minimalist Inverted Style) */
+.btn-primary {
+    background-color: #1e293b;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 13px;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    transition: all 100ms ease;
+}
+
+.btn-primary:hover {
+    background-color: #334155;
+}
+
+.btn-secondary {
+    background-color: #ffffff;
+    color: #1e293b;
+    font-weight: 500;
+    font-size: 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+    padding: 5px 11px;
+    transition: all 100ms ease;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
+}
+
+.btn-secondary:hover {
+    background-color: #f5f5f7;
+    border-color: #b5b5bc;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: #64748b;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 8px;
+    transition: all 100ms ease;
+}
+
+.btn-ghost:hover {
+    background-color: #e8e8ed;
+    color: #1e293b;
+}
+
+.btn-danger {
+    background-color: #fdf2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 5px 10px;
+}
+
+.btn-danger:hover {
+    background-color: #fee2e2;
+}
+
+/* 8. Segmented Control Bar & Folder Tabs */
+.segmented-bar {
+    background-color: #e5e5ea;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+button.segmented-btn, .segmented-btn {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #636366;
+    font-weight: 500;
+    font-size: 12px;
+    padding: 5px 12px;
+    transition: all 100ms ease;
+}
+
+button.segmented-btn:hover, .segmented-btn:hover {
+    color: #1e293b;
+}
+
+button.segmented-btn.active, .segmented-btn.active {
+    background-color: #ffffff;
+    color: #1e293b;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.folder-tabs-bar {
+    background-color: #ebebef;
+    border: 1px solid #dcdce0;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+button.folder-tab, .folder-tab {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #636366;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 7px 16px;
+    transition: all 120ms ease;
+}
+
+button.folder-tab:hover, .folder-tab:hover {
+    color: #1e293b;
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+button.folder-tab.active, .folder-tab.active {
+    background-color: #1e293b;
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* 9. Form Inputs (Comfortable constrained widths) */
+entry, textview {
+    background-color: #ffffff;
+    color: #1e293b;
+    border: 1px solid #d1d1d6;
+    border-radius: 7px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+entry:focus, textview:focus {
+    border-color: #8e8e93;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.06);
+}
+
+dropdown button {
+    background-color: #ffffff;
+    color: #1e293b;
+    border: 1px solid #d1d1d6;
+    border-radius: 7px;
+    padding: 5px 9px;
+    font-size: 12px;
+}
+
+dropdown button:hover {
+    background-color: #f5f5f7;
+    border-color: #b5b5bc;
+}
+
+/* 10. Checkboxes & Switches (Muted Shark Gray-Green) */
+checkbutton check {
+    border-radius: 5px;
+    border: 1.5px solid #c7c7cc;
+    background-color: #ffffff;
+    min-width: 16px;
+    min-height: 16px;
+}
+
+checkbutton check:checked {
+    background-color: #556253; /* Muted Shark Gray-Green */
+    border-color: #556253;
+    color: #ffffff;
+}
+
+switch {
+    border-radius: 9999px;
+    background-color: #e5e5ea;
+    border: 1px solid #d1d1d6;
+    padding: 2px;
+}
+
+switch:checked {
+    background-color: #556253; /* Muted Shark Gray-Green */
+    border-color: #556253;
+}
+
+switch slider {
+    border-radius: 9999px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.20);
+    min-width: 18px;
+    min-height: 18px;
+}
+
+spinbutton {
+    background-color: #ffffff;
+    border: 1px solid #d1d1d6;
+    border-radius: 7px;
+    padding: 0;
+}
+
+spinbutton entry {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    color: #1e293b;
+}
+
+spinbutton button {
+    background: transparent;
+    border: none;
+    color: #636366;
+}
+
+spinbutton button:hover {
+    background-color: #f0f0f4;
+}
+
+/* 11. Progress Bars (Muted Gray-Green to Grey-Pink Shark Gradient) */
+progressbar trough {
+    background-color: #e5e5ea;
+    border-radius: 4px;
+    min-height: 6px;
+}
+
+progressbar progress {
+    background: linear-gradient(90deg, #6b7768, #947885);
+    border-radius: 4px;
+}
+
+/* 12. Minimalist Scrollbars */
+scrollbar trough {
+    background-color: transparent;
+}
+
+scrollbar slider {
+    background-color: #c7c7cc;
+    border-radius: 8px;
+    min-width: 5px;
+}
+
+scrollbar slider:hover {
+    background-color: #8e8e93;
+}
+
+/* 13. Calendar Timeline Canvas with Translucent Glass (Sharks Swim Behind!) */
+.calendar-view, .calendar-view scrolledwindow, .calendar-view viewport {
+    background: transparent;
+}
+
+.calendar-view box.timeline-canvas, .calendar-view .timeline-canvas {
+    background-color: rgba(255, 255, 255, 0.32); /* Subtle translucent tint over WebKit frosted glass */
+    border: 1px solid rgba(100, 116, 139, 0.16);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+}
+
+.calendar-view box.card-box, .calendar-view .card-box {
+    background-color: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(100, 116, 139, 0.16);
+    border-radius: 10px;
+}
+
+.calendar-view .card-box box.timeline-canvas,
+.calendar-view .card-box .timeline-canvas {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+box.timeline-canvas, .timeline-canvas {
+    background-color: rgba(255, 255, 255, 0.32);
+    border: 1px solid rgba(100, 116, 139, 0.16);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+}
+
+box.timeline-hour-slot, .timeline-hour-slot {
+    border-top: 1px solid rgba(100, 116, 139, 0.12);
+    min-height: 64px;
+}
+
+box.timeline-hour-slot:hover, .timeline-hour-slot:hover {
+    background-color: rgba(100, 116, 139, 0.03);
+}
+
+box.timeline-halfhour-slot, .timeline-halfhour-slot {
+    border-top: 1px dashed rgba(100, 116, 139, 0.08);
+    min-height: 32px;
+}
+
+.hour-slot-box {
+    border-left: 2px solid transparent;
+    border-bottom: 1px dashed #e8e8ed;
+    padding: 4px 0;
+    transition: all 100ms ease;
+}
+
+.hour-slot-box:hover {
+    border-left-color: #6b7768; /* Shark Gray-Green drop indicator */
+    background-color: rgba(107, 119, 104, 0.04);
+}
+
+.drop-indicator {
+    background-color: #1e293b;
+    color: #ffffff;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.quarter-line {
+    border-top: 1px dotted #e5e5ea;
+    min-height: 1px;
+    margin: 2px 0;
+}
+
+/* Scheduled Task Card (Translucent Frosted Card with Shark Gray-Green Stripe) */
+frame.calendar-task-card, .calendar-task-card {
+    background-color: rgba(255, 255, 255, 0.90);
+    border: 1px solid rgba(100, 116, 139, 0.18);
+    border-left: 4px solid #6b7768; /* Shark Gray-Green */
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+frame.calendar-task-card:hover, .calendar-task-card:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    border-color: #6b7768;
+}
+
+/* Scheduled Event Card (Translucent Frosted Card with Shark Grey-Pink Stripe) */
+frame.calendar-event-card, .calendar-event-card {
+    background-color: rgba(253, 251, 252, 0.90);
+    border: 1px solid rgba(100, 116, 139, 0.18);
+    border-left: 4px solid #947885; /* Shark Grey-Pink */
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+frame.calendar-event-card:hover, .calendar-event-card:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    border-color: #947885;
+}
+
+/* Open-ended Scheduled Event Card */
+frame.calendar-event-card-open, .calendar-event-card-open {
+    background-color: rgba(255, 255, 255, 0.88);
+    border: 1px dashed rgba(100, 116, 139, 0.25);
+    border-left: 4px solid #947885;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+frame.calendar-event-card-open:hover, .calendar-event-card-open:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+    border-color: #947885;
+}
+
+/* Overdue Task Card (Shark Gray-Brown Stripe) */
+frame.calendar-task-card-overdue, .calendar-task-card-overdue {
+    background-color: rgba(255, 253, 249, 0.92);
+    border: 1px solid rgba(148, 135, 121, 0.30);
+    border-left: 4px solid #8a7d70; /* Shark Gray-Brown */
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(138, 125, 112, 0.10);
+}
+
+frame.calendar-task-card-overdue:hover, .calendar-task-card-overdue:hover {
+    border-color: #8a7d70;
+    box-shadow: 0 4px 14px rgba(138, 125, 112, 0.18);
+}
+
+/* Completed Scheduled Cards */
+frame.calendar-task-card-completed, .calendar-task-card-completed,
+frame.calendar-event-card-completed, .calendar-event-card-completed {
+    background-color: rgba(245, 245, 247, 0.70);
+    border: 1px solid #dcdce0;
+    border-left: 4px solid #8e8e93;
+    border-radius: 8px;
+    opacity: 0.65;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+frame.calendar-task-card-completed:hover, .calendar-task-card-completed:hover,
+frame.calendar-event-card-completed:hover, .calendar-event-card-completed:hover {
+    opacity: 0.95;
+    border-color: #8e8e93;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.calendar-card-title-completed {
+    color: #8e8e93;
+    text-decoration: line-through;
+}
+
+.calendar-missed-banner {
+    background-color: #fffbf2;
+    border: 1px solid #ffe8b5;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+}
+
+.calendar-missed-row {
+    background-color: #ffffff;
+    border: 1px solid #f3e2bf;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.home-reminder-strip {
+    background-color: #fffbf2;
+    border: 1px solid #ffe8b5;
+    border-radius: 9px;
+    padding: 8px 14px;
+}
+
+.all-day-strip {
+    background-color: rgba(255, 255, 255, 0.85);
+    border: 1px solid #e5e5ea;
+    border-radius: 8px;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+}
+
+.preset-chip-btn {
+    border-radius: 9999px;
+    padding: 3px 8px;
+    font-size: 11px;
+}
+
+box.resize-handle-top, .resize-handle-top {
+    min-height: 7px;
+    border-top: 2px solid rgba(0, 0, 0, 0.15);
+    border-radius: 4px 4px 0 0;
+}
+
+box.resize-handle-top:hover, .resize-handle-top:hover {
+    border-top-color: #1e293b;
+    background-color: rgba(0, 0, 0, 0.10);
+}
+
+box.resize-handle-bottom, .resize-handle-bottom {
+    min-height: 7px;
+    border-bottom: 2px solid rgba(0, 0, 0, 0.15);
+    border-radius: 0 0 4px 4px;
+}
+
+box.resize-handle-bottom:hover, .resize-handle-bottom:hover {
+    border-bottom-color: #1e293b;
+    background-color: rgba(0, 0, 0, 0.10);
+}
+
+/* 14. Panel / Home Section & Workday Attendance */
+.home-hero-card {
+    background-color: #ffffff;
+    border: 1px solid #e2e2e7;
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.home-workday-slot {
+    background-color: #fbfbfd;
+    border: 1px solid #ebebf0;
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: all 120ms ease;
+}
+
+.home-workday-slot:hover {
+    border-color: #dcdce0;
+}
+
+.workday-time-large {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: #1e293b;
+    font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.metric-card {
+    background-color: #ffffff;
+    border: 1px solid #e5e5ea;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    transition: all 120ms ease;
+}
+
+.metric-card:hover {
+    border-color: #d1d1d6;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.metric-number {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.4px;
+}
+
+.report-panel {
+    background-color: #ffffff;
+    border: 1px solid #e5e5ea;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.report-row-card {
+    background-color: #fbfbfd;
+    border: 1px solid #ebebf0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin: 2px 0;
+    transition: all 100ms ease;
+}
+
+.report-row-card:hover {
+    background-color: #f5f5f7;
+    border-color: #dcdce0;
+}

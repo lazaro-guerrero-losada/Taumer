@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Taumer
+GenericName=Task & Focus Tracker
+Comment=Native Linux Task & Focus Tracker with Obsidian Integration
+Exec=taumer
+Icon=taumer
+Terminal=false
+Type=Application
+Categories=Utility;Office;ProjectManagement;
+Keywords=task;todo;tracker;obsidian;focus;taumer;pomodoro;timeblock;
+StartupNotify=true
