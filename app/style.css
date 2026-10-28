@@ -568,6 +568,51 @@ frame.calendar-task-card-open:hover, .calendar-task-card-open:hover {
     border-color: #6b7768;
 }
 
+/* Calendar Card Action Buttons (Black Icons, Transparent Background) */
+button.cal-card-action-btn, .cal-card-action-btn {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 2px 3px;
+    margin: 0;
+    min-height: 20px;
+    min-width: 20px;
+    border-radius: 4px;
+    color: #0f172a;
+    transition: background 100ms ease;
+}
+
+button.cal-card-action-btn:hover, .cal-card-action-btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+button.cal-card-action-btn:active, .cal-card-action-btn:active {
+    background: rgba(0, 0, 0, 0.16);
+}
+
+/* Timeline Canvas Drag-and-Drop Live Preview Line & Time Badge */
+box.timeline-drop-preview, .timeline-drop-preview {
+    pointer-events: none;
+    z-index: 100;
+}
+
+label.timeline-drop-badge, .timeline-drop-badge {
+    background-color: #0f172a;
+    color: #ffffff;
+    font-family: "Geist Mono", "JetBrains Mono", monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+separator.timeline-drop-line, .timeline-drop-line {
+    background-color: #0f172a;
+    min-height: 2px;
+    opacity: 0.85;
+}
+
 /* Overdue Task Card (Shark Gray-Brown Stripe) */
 frame.calendar-task-card-overdue, .calendar-task-card-overdue {
     background-color: rgba(255, 253, 249, 0.92);

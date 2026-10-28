@@ -60,6 +60,36 @@ def create_sidebar_stage_icon(stage: str) -> Gtk.Widget:
         fallback_map = {"normal": "◫", "wide": "▥", "closed": "◻"}
         return Gtk.Label(label=fallback_map.get(stage, "◫"))
 
+SVG_CHECK = '''<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="20 6 9 17 4 12"></polyline>
+</svg>'''
+
+SVG_CHECK_DONE = '''<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="20 6 9 17 4 12"></polyline>
+</svg>'''
+
+SVG_PEN_BOX = '''<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+</svg>'''
+
+SVG_X_DELETE = '''<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="18" y1="6" x2="6" y2="18"></line>
+  <line x1="6" y1="6" x2="18" y2="18"></line>
+</svg>'''
+
+def create_action_svg_icon(svg_str: str) -> Gtk.Widget:
+    """Renders crisp SVG action icons in black without background."""
+    try:
+        loader = GdkPixbuf.PixbufLoader.new_with_type('svg')
+        loader.write(svg_str.encode('utf-8'))
+        loader.close()
+        pixbuf = loader.get_pixbuf()
+        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        return Gtk.Image.new_from_paintable(texture)
+    except Exception:
+        return Gtk.Label(label="•")
+
 DAY_START_HOUR = 7   # 07:00
 DAY_END_HOUR = 23    # 23:00
 TOTAL_HOURS = DAY_END_HOUR - DAY_START_HOUR # 16 hours
@@ -246,6 +276,7 @@ class CalendarView(Gtk.Box):
         btn_inner.append(self.stage_btn_label)
         self.btn_stage_drawer.set_child(btn_inner)
         toolbar.append(self.btn_stage_drawer)
+        self._attach_unassign_drop_target(self.btn_stage_drawer)
 
         self.append(toolbar)
 
@@ -352,14 +383,14 @@ class CalendarView(Gtk.Box):
             self.date_label.set_text(f"{months_en[self.current_date.month-1]} {self.current_date.year}")
             self._render_month_view()
         elif self.active_mode in ["3d", "5d"]:
-            self.btn_stage_drawer.set_visible(False)
+            self.btn_stage_drawer.set_visible(True)
             num_days = 3 if self.active_mode == "3d" else 5
             start_date = self.current_date
             if self.active_mode == "5d":
                 start_date = self.current_date - timedelta(days=self.current_date.weekday())
             end_date = start_date + timedelta(days=num_days - 1)
             self.date_label.set_text(f"{months_en[start_date.month-1][:3]} {start_date.day} – {months_en[end_date.month-1][:3]} {end_date.day}, {start_date.year}")
-            self._render_multiday_view(start_date, num_days)
+            self._render_multiday_view(start_date, num_days, pending_unassigned, past_missed)
         else:
             self.btn_stage_drawer.set_visible(True)
             fecha_txt = f"{days_en[self.current_date.weekday()]}, {months_en[self.current_date.month-1]} {self.current_date.day}, {self.current_date.year}"
@@ -371,6 +402,7 @@ class CalendarView(Gtk.Box):
             bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             bar.add_css_class("home-reminder-strip")
             bar.set_margin_bottom(6)
+            self._attach_unassign_drop_target(bar)
 
             lbl_ic = Gtk.Label(label="⚠️")
             bar.append(lbl_ic)
@@ -397,6 +429,7 @@ class CalendarView(Gtk.Box):
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card.add_css_class("calendar-missed-banner")
+        self._attach_unassign_drop_target(card)
 
         # Top header
         top_h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -532,8 +565,142 @@ class CalendarView(Gtk.Box):
         dlg.present()
 
     # ==========================================
-    # 1-DAY VIEW (True-Time Canvas + Side-by-Side Parallel Items)
+    # 1-DAY VIEW & UNASSIGNED TASKS DRAWER
     # ==========================================
+    def _build_unassigned_drawer(self, pending_unassigned: list, past_missed: list = None) -> Gtk.Widget:
+        is_normal = (self.drawer_stage == "normal")
+        drawer_width = DRAWER_NORMAL_WIDTH if is_normal else DRAWER_WIDE_WIDTH
+        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        right_box.set_hexpand(False)
+        right_box.set_halign(Gtk.Align.END)
+        right_box.set_size_request(drawer_width, -1)
+        right_box.add_css_class("card-box")
+        self._attach_unassign_drop_target(right_box)
+
+        r_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        total_drawer_items = len(pending_unassigned) + (len(past_missed) if past_missed else 0)
+        lbl_title_txt = f"Tasks ({total_drawer_items})" if is_normal else f"Tasks & Missed ({total_drawer_items})"
+        lbl_side = Gtk.Label(label=lbl_title_txt)
+        lbl_side.add_css_class("text-title")
+        r_header.append(lbl_side)
+
+        r_header.append(Gtk.Box(hexpand=True))
+
+        # Width toggle button (switch between Normal 180px and Widely 360px)
+        toggle_width_btn = Gtk.Button(label="↔" if is_normal else "↔ Normal")
+        toggle_width_btn.add_css_class("btn-ghost")
+        toggle_width_btn.set_tooltip_text(f"Switch width (Normal {DRAWER_NORMAL_WIDTH}px / Widely {DRAWER_WIDE_WIDTH}px)")
+        toggle_width_btn.connect("clicked", lambda b: self._set_drawer_stage("wide" if self.drawer_stage == "normal" else "normal"))
+        r_header.append(toggle_width_btn)
+
+        close_drawer_btn = Gtk.Button(label="✕")
+        close_drawer_btn.add_css_class("btn-ghost")
+        close_drawer_btn.set_tooltip_text("Close drawer")
+        close_drawer_btn.connect("clicked", lambda b: self._set_drawer_stage("closed"))
+        r_header.append(close_drawer_btn)
+        right_box.append(r_header)
+
+        lbl_hint_txt = "Drag to timeline (drop here to unassign):" if is_normal else "Drag tasks onto timeline, or drop here to unassign:"
+        lbl_hint = Gtk.Label(label=lbl_hint_txt)
+        lbl_hint.add_css_class("text-muted")
+        lbl_hint.set_halign(Gtk.Align.START)
+        lbl_hint.set_wrap(True)
+        lbl_hint.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        right_box.append(lbl_hint)
+
+        scrolled_right = Gtk.ScrolledWindow()
+        scrolled_right.set_vexpand(True)
+        scrolled_right.set_hexpand(False)
+        scrolled_right.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._attach_unassign_drop_target(scrolled_right)
+
+        pending_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        pending_list.set_hexpand(False)
+        self._attach_unassign_drop_target(pending_list)
+        scrolled_right.set_child(pending_list)
+        right_box.append(scrolled_right)
+
+        # Section A: Past Missed Tasks (Tasks that didn't go done in previous calendar schedules)
+        if past_missed:
+            sec_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            sec_header.set_margin_top(4)
+            sec_lbl = Gtk.Label(label="⚠️ Missed" if is_normal else f"⚠️ Needs Recalendaring ({len(past_missed)})")
+            sec_lbl.add_css_class("tag-pill-alert")
+            sec_header.append(sec_lbl)
+            pending_list.append(sec_header)
+
+            for t in past_missed:
+                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+                card.add_css_class("card-box-accent")
+                card.add_css_class("draggable-card")
+                self._make_widget_draggable(card, t.id)
+
+                top_r = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                date_tag = t.scheduled_date[5:] if t.scheduled_date else "Past"
+                dur_lbl = Gtk.Label(label=f"⚠️ {date_tag}")
+                dur_lbl.add_css_class("tag-pill-alert")
+                top_r.append(dur_lbl)
+
+                top_r.append(Gtk.Box(hexpand=True))
+
+                btn_tod = Gtk.Button(label="⟳ Today")
+                btn_tod.add_css_class("btn-secondary")
+                btn_tod.set_tooltip_text("Reschedule to today")
+                btn_tod.connect("clicked", lambda b, tid=t.id: self._quick_recalendar(tid, "today"))
+                top_r.append(btn_tod)
+
+                card.append(top_r)
+
+                t_lbl = Gtk.Label(label=t.title)
+                t_lbl.set_halign(Gtk.Align.START)
+                t_lbl.add_css_class("text-title")
+                t_lbl.set_wrap(True)
+                t_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                card.append(t_lbl)
+                pending_list.append(card)
+
+            pending_list.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Section B: General Unassigned Tasks
+        if pending_unassigned:
+            for t in pending_unassigned:
+                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+                card.add_css_class("card-box-accent")
+                card.add_css_class("draggable-card")
+                self._make_widget_draggable(card, t.id)
+
+                top_r = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                proj_lbl = Gtk.Label(label=f"{t.icon} {t.project}")
+                proj_lbl.add_css_class("tag-pill-project")
+                proj_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+                proj_lbl.set_max_width_chars(8 if is_normal else 20)
+                top_r.append(proj_lbl)
+
+                dur_lbl = Gtk.Label(label=f"{t.estimated_minutes}m")
+                dur_lbl.add_css_class("tag-pill")
+                top_r.append(dur_lbl)
+
+                top_r.append(Gtk.Box(hexpand=True))
+                drag_hint = Gtk.Label(label="⠿")
+                drag_hint.add_css_class("text-muted")
+                top_r.append(drag_hint)
+                card.append(top_r)
+
+                t_lbl = Gtk.Label(label=t.title)
+                t_lbl.set_halign(Gtk.Align.START)
+                t_lbl.add_css_class("text-title")
+                t_lbl.set_wrap(True)
+                t_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                card.append(t_lbl)
+                pending_list.append(card)
+        elif not past_missed:
+            lbl_none = Gtk.Label(label="All tasks are scheduled")
+            lbl_none.add_css_class("text-muted")
+            lbl_none.set_margin_top(16)
+            pending_list.append(lbl_none)
+
+        return right_box
+
     def _render_1day_view(self, pending_unassigned: list, past_missed: list = None):
         paned = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         paned.set_vexpand(True)
@@ -547,133 +714,7 @@ class CalendarView(Gtk.Box):
 
         # 2. Unassigned Tasks Drawer on RIGHT (180px in normal, 360px in wide)
         if self.drawer_stage != "closed":
-            is_normal = (self.drawer_stage == "normal")
-            drawer_width = DRAWER_NORMAL_WIDTH if is_normal else DRAWER_WIDE_WIDTH
-            right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            right_box.set_hexpand(False)
-            right_box.set_halign(Gtk.Align.END)
-            right_box.set_size_request(drawer_width, -1)
-            right_box.add_css_class("card-box")
-
-            r_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            total_drawer_items = len(pending_unassigned) + (len(past_missed) if past_missed else 0)
-            lbl_title_txt = f"Tasks ({total_drawer_items})" if is_normal else f"Tasks & Missed ({total_drawer_items})"
-            lbl_side = Gtk.Label(label=lbl_title_txt)
-            lbl_side.add_css_class("text-title")
-            r_header.append(lbl_side)
-
-            r_header.append(Gtk.Box(hexpand=True))
-
-            # Width toggle button (switch between Normal 180px and Widely 360px)
-            toggle_width_btn = Gtk.Button(label="↔" if is_normal else "↔ Normal")
-            toggle_width_btn.add_css_class("btn-ghost")
-            toggle_width_btn.set_tooltip_text(f"Switch width (Normal {DRAWER_NORMAL_WIDTH}px / Widely {DRAWER_WIDE_WIDTH}px)")
-            toggle_width_btn.connect("clicked", lambda b: self._set_drawer_stage("wide" if self.drawer_stage == "normal" else "normal"))
-            r_header.append(toggle_width_btn)
-
-            close_drawer_btn = Gtk.Button(label="✕")
-            close_drawer_btn.add_css_class("btn-ghost")
-            close_drawer_btn.set_tooltip_text("Close drawer")
-            close_drawer_btn.connect("clicked", lambda b: self._set_drawer_stage("closed"))
-            r_header.append(close_drawer_btn)
-            right_box.append(r_header)
-
-            lbl_hint_txt = "Drag to timeline:" if is_normal else "Drag tasks onto your timeline:"
-            lbl_hint = Gtk.Label(label=lbl_hint_txt)
-            lbl_hint.add_css_class("text-muted")
-            lbl_hint.set_halign(Gtk.Align.START)
-            lbl_hint.set_wrap(True)
-            lbl_hint.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            right_box.append(lbl_hint)
-
-            scrolled_right = Gtk.ScrolledWindow()
-            scrolled_right.set_vexpand(True)
-            scrolled_right.set_hexpand(False)
-            scrolled_right.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            pending_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            pending_list.set_hexpand(False)
-            scrolled_right.set_child(pending_list)
-            right_box.append(scrolled_right)
-            paned.append(right_box)
-
-            # Section A: Past Missed Tasks (Tasks that didn't go done in previous calendar schedules)
-            if past_missed:
-                sec_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-                sec_header.set_margin_top(4)
-                sec_lbl = Gtk.Label(label="⚠️ Missed" if is_normal else f"⚠️ Needs Recalendaring ({len(past_missed)})")
-                sec_lbl.add_css_class("tag-pill-alert")
-                sec_header.append(sec_lbl)
-                pending_list.append(sec_header)
-
-                for t in past_missed:
-                    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                    card.add_css_class("card-box-accent")
-                    card.add_css_class("draggable-card")
-                    self._make_widget_draggable(card, t.id)
-
-                    top_r = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-                    date_tag = t.scheduled_date[5:] if t.scheduled_date else "Past"
-                    dur_lbl = Gtk.Label(label=f"⚠️ {date_tag}")
-                    dur_lbl.add_css_class("tag-pill-alert")
-                    top_r.append(dur_lbl)
-
-                    top_r.append(Gtk.Box(hexpand=True))
-
-                    btn_tod = Gtk.Button(label="⟳ Today")
-                    btn_tod.add_css_class("btn-secondary")
-                    btn_tod.set_tooltip_text("Reschedule to today")
-                    btn_tod.connect("clicked", lambda b, tid=t.id: self._quick_recalendar(tid, "today"))
-                    top_r.append(btn_tod)
-
-                    card.append(top_r)
-
-                    t_lbl = Gtk.Label(label=t.title)
-                    t_lbl.set_halign(Gtk.Align.START)
-                    t_lbl.add_css_class("text-title")
-                    t_lbl.set_wrap(True)
-                    t_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-                    card.append(t_lbl)
-                    pending_list.append(card)
-
-                pending_list.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-
-            # Section B: General Unassigned Tasks
-            if pending_unassigned:
-                for t in pending_unassigned:
-                    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                    card.add_css_class("card-box-accent")
-                    card.add_css_class("draggable-card")
-                    self._make_widget_draggable(card, t.id)
-
-                    top_r = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-                    proj_lbl = Gtk.Label(label=f"{t.icon} {t.project}")
-                    proj_lbl.add_css_class("tag-pill-project")
-                    proj_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-                    proj_lbl.set_max_width_chars(8 if is_normal else 20)
-                    top_r.append(proj_lbl)
-
-                    dur_lbl = Gtk.Label(label=f"{t.estimated_minutes}m")
-                    dur_lbl.add_css_class("tag-pill")
-                    top_r.append(dur_lbl)
-
-                    top_r.append(Gtk.Box(hexpand=True))
-                    drag_hint = Gtk.Label(label="⠿")
-                    drag_hint.add_css_class("text-muted")
-                    top_r.append(drag_hint)
-                    card.append(top_r)
-
-                    t_lbl = Gtk.Label(label=t.title)
-                    t_lbl.set_halign(Gtk.Align.START)
-                    t_lbl.add_css_class("text-title")
-                    t_lbl.set_wrap(True)
-                    t_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-                    card.append(t_lbl)
-                    pending_list.append(card)
-            elif not past_missed:
-                lbl_none = Gtk.Label(label="All tasks are scheduled")
-                lbl_none.add_css_class("text-muted")
-                lbl_none.set_margin_top(16)
-                pending_list.append(lbl_none)
+            paned.append(self._build_unassigned_drawer(pending_unassigned, past_missed))
 
     # ==========================================
     # TRUE-TIME CANVAS TIMELINE GENERATOR
@@ -706,14 +747,31 @@ class CalendarView(Gtk.Box):
 
                 txt = f"{ut.icon} {ut.title}" if getattr(ut, "icon", None) else ut.title
                 u_lbl = Gtk.Label(label=txt)
+                u_lbl.set_ellipsize(Pango.EllipsizeMode.END)
                 if u_done:
                     u_lbl.add_css_class("calendar-card-title-completed")
                 u_item_box.append(u_lbl)
 
-                btn_chk = Gtk.Button(label="✓" if u_done else "○")
-                btn_chk.add_css_class("btn-ghost")
-                btn_chk.connect("clicked", lambda b, it=ut: self._prompt_complete_task(it))
+                btn_chk = Gtk.Button()
+                btn_chk.add_css_class("cal-card-action-btn")
+                btn_chk.set_tooltip_text("Complete task" if not u_done else "Mark incomplete")
+                btn_chk.set_child(create_action_svg_icon(SVG_CHECK_DONE if u_done else SVG_CHECK))
+                btn_chk.connect("clicked", lambda b, it=ut: self._toggle_calendar_item_done(it))
                 u_item_box.append(btn_chk)
+
+                btn_edit = Gtk.Button()
+                btn_edit.add_css_class("cal-card-action-btn")
+                btn_edit.set_tooltip_text("Edit task")
+                btn_edit.set_child(create_action_svg_icon(SVG_PEN_BOX))
+                btn_edit.connect("clicked", lambda b, it=ut: self._open_reschedule_dialog(it))
+                u_item_box.append(btn_edit)
+
+                btn_del = Gtk.Button()
+                btn_del.add_css_class("cal-card-action-btn")
+                btn_del.set_tooltip_text("Delete task")
+                btn_del.set_child(create_action_svg_icon(SVG_X_DELETE))
+                btn_del.connect("clicked", lambda b, it=ut: self._delete_calendar_item(it))
+                u_item_box.append(btn_del)
 
                 edit_g = Gtk.GestureClick.new()
                 def on_ad_clicked(g, n, x, y, item=ut):
@@ -801,6 +859,25 @@ class CalendarView(Gtk.Box):
         fixed_canvas.set_size_request(-1, TOTAL_HEIGHT)
         overlay.add_overlay(fixed_canvas)
 
+        # Live drop indicator for dragging over timeline
+        drop_indicator = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        drop_indicator.add_css_class("timeline-drop-preview")
+        drop_indicator.set_can_target(False)
+        drop_indicator.set_visible(False)
+
+        drop_badge = Gtk.Label(label="09:00")
+        drop_badge.add_css_class("timeline-drop-badge")
+        drop_badge.set_can_target(False)
+
+        drop_line = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        drop_line.add_css_class("timeline-drop-line")
+        drop_line.set_hexpand(True)
+        drop_line.set_can_target(False)
+
+        drop_indicator.append(drop_badge)
+        drop_indicator.append(drop_line)
+        fixed_canvas.put(drop_indicator, 0, 0)
+
         # Fetch tasks and events for this date
         all_tasks = self.storage.get_tasks()
         day_tasks = [t for t in all_tasks if t.scheduled_date == date_str or (t.scheduled_time and not t.scheduled_date and date_str == datetime.now().strftime("%Y-%m-%d"))]
@@ -839,12 +916,12 @@ class CalendarView(Gtk.Box):
 
         def on_canvas_tick(widget, frame_clock):
             curr_w = widget.get_width()
-            if curr_w > 50 and curr_w != last_allocated_width[0]:
+            if curr_w > 40 and curr_w != last_allocated_width[0]:
                 last_allocated_width[0] = curr_w
-                gap = 6
-                margin_left = 6
-                margin_right = 6
-                net_w = max(100, curr_w - margin_left - margin_right)
+                gap = 4
+                margin_left = 4
+                margin_right = 4
+                net_w = max(40, curr_w - margin_left - margin_right)
 
                 for cp in card_placements:
                     w_child = cp["widget"]
@@ -853,18 +930,20 @@ class CalendarView(Gtk.Box):
                     y_pos = cp["top_y"]
                     h_pos = cp["height"]
 
-                    col_w = max(40, int((net_w - (t_cols - 1) * gap) / t_cols))
+                    col_w = max(35, int((net_w - (t_cols - 1) * gap) / t_cols))
                     x_pos = int(margin_left + c_idx * (col_w + gap))
 
                     w_child.set_size_request(col_w, h_pos)
                     fixed_canvas.move(w_child, x_pos, y_pos)
+                    if hasattr(w_child, "_adapt_responsive_width"):
+                        w_child._adapt_responsive_width(col_w)
 
             return GLib.SOURCE_CONTINUE
 
         fixed_canvas.add_tick_callback(on_canvas_tick)
 
         # Drop Target on canvas to schedule any task by dropping with minute precision
-        self._attach_canvas_drop_target(fixed_canvas, date_str)
+        self._attach_canvas_drop_target(fixed_canvas, date_str, drop_indicator, drop_badge)
 
         # Click on empty canvas space to quickly schedule at that exact minute
         click_gesture = Gtk.GestureClick.new()
@@ -956,14 +1035,18 @@ class CalendarView(Gtk.Box):
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         content_box.set_vexpand(True)
 
-        # Header Row: Time range, Project badge, Action button
-        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        # Header Row: Time range, Project badge, Action buttons
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
 
+        time_str_short = format_minutes_to_time(start_m)
         if is_open_ended and not is_completed:
-            time_str = f"{format_minutes_to_time(start_m)} – ?"
+            time_str_full = f"{time_str_short} – ?"
         else:
-            time_str = f"{format_minutes_to_time(start_m)} – {format_minutes_to_time(start_m + dur)}"
-        time_badge = Gtk.Label(label=time_str)
+            time_str_full = f"{time_str_short} – {format_minutes_to_time(start_m + dur)}"
+
+        time_badge = Gtk.Label(label=time_str_full)
+        time_badge.set_ellipsize(Pango.EllipsizeMode.END)
+        time_badge.set_width_chars(1)
         if is_completed:
             time_badge.add_css_class("tag-pill-completed")
         else:
@@ -971,54 +1054,81 @@ class CalendarView(Gtk.Box):
         header_row.append(time_badge)
 
         if is_open_ended and not is_completed:
-            type_badge = Gtk.Label(label="◈ Open-ended" if is_event else f"{item.icon} Open-ended")
+            type_text = "◈ Open" if is_event else f"{item.icon} Open"
         else:
-            type_badge = Gtk.Label(label=f"◈ Event" if is_event else f"{item.icon} {item.project}")
+            type_text = "◈ Event" if is_event else f"{item.icon} {item.project}"
+        type_badge = Gtk.Label(label=type_text)
+        type_badge.set_ellipsize(Pango.EllipsizeMode.END)
+        type_badge.set_width_chars(1)
         if is_completed:
             type_badge.add_css_class("tag-pill-completed")
         else:
             type_badge.add_css_class("tag-pill-project")
         header_row.append(type_badge)
 
+        if is_overdue:
+            overdue_badge = Gtk.Label(label="⚠️")
+            overdue_badge.add_css_class("tag-pill-alert")
+            overdue_badge.set_tooltip_text("Overdue / Missed")
+            header_row.append(overdue_badge)
+
         header_row.append(Gtk.Box(hexpand=True))
 
-        if is_event:
-            # Event action: Log to Journal (prompts for actual duration)
-            btn_log = Gtk.Button(label="Logged ✓" if item.logged_to_journal else "+ Log to Journal")
-            btn_log.add_css_class("btn-secondary" if item.logged_to_journal else "btn-primary")
-            if not item.logged_to_journal:
-                btn_log.connect("clicked", lambda b, it=item: self._prompt_log_event(it))
-            header_row.append(btn_log)
-        else:
-            # Task action: Complete / Done (prompts for actual duration)
-            btn_c = Gtk.Button(label="Done ✓" if item.status == "done" else "Complete")
-            btn_c.add_css_class("btn-secondary" if item.status == "done" else "btn-primary")
-            btn_c.connect("clicked", lambda b, it=item: self._prompt_complete_task(it))
-            header_row.append(btn_c)
+        # Action buttons: Complete tick, Pen-box edit, X delete (black icons, transparent background)
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
 
-            if is_overdue:
-                overdue_badge = Gtk.Label(label="⚠️ Missed")
-                overdue_badge.add_css_class("tag-pill-alert")
-                header_row.append(overdue_badge)
+        btn_chk = Gtk.Button()
+        btn_chk.add_css_class("cal-card-action-btn")
+        btn_chk.set_tooltip_text("Complete task" if not is_completed else "Mark incomplete")
+        btn_chk.set_child(create_action_svg_icon(SVG_CHECK_DONE if is_completed else SVG_CHECK))
+        btn_chk.connect("clicked", lambda b, it=item: self._toggle_calendar_item_done(it))
+        actions_box.append(btn_chk)
 
-                btn_recal = Gtk.Button(label="⟳ Recalendar")
-                btn_recal.add_css_class("btn-secondary")
-                btn_recal.set_tooltip_text("Reschedule this uncompleted task")
-                btn_recal.connect("clicked", lambda b, task=item: self._open_reschedule_dialog(task))
-                header_row.append(btn_recal)
+        btn_edit = Gtk.Button()
+        btn_edit.add_css_class("cal-card-action-btn")
+        btn_edit.set_tooltip_text("Edit task")
+        btn_edit.set_child(create_action_svg_icon(SVG_PEN_BOX))
+        btn_edit.connect("clicked", lambda b, it=item: self._open_reschedule_dialog(it))
+        actions_box.append(btn_edit)
 
+        btn_del = Gtk.Button()
+        btn_del.add_css_class("cal-card-action-btn")
+        btn_del.set_tooltip_text("Delete task")
+        btn_del.set_child(create_action_svg_icon(SVG_X_DELETE))
+        btn_del.connect("clicked", lambda b, it=item: self._delete_calendar_item(it))
+        actions_box.append(btn_del)
+
+        header_row.append(actions_box)
         content_box.append(header_row)
 
-        # Title & Notes
+        # Title
         title_lbl = Gtk.Label(label=item.title)
         title_lbl.add_css_class("text-title")
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_wrap(False)
         title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        title_lbl.set_width_chars(1)
         if is_completed:
             title_lbl.add_css_class("calendar-card-title-completed")
             title_lbl.add_css_class("text-muted")
         content_box.append(title_lbl)
+
+        # Responsive card layout callback for narrow / multiday parallel columns
+        def adapt_width(w: int):
+            if w < 90:
+                type_badge.set_visible(False)
+                time_badge.set_text(time_str_short)
+                btn_edit.set_visible(False)
+            elif w < 135:
+                type_badge.set_visible(False)
+                time_badge.set_text(time_str_short)
+                btn_edit.set_visible(True)
+            else:
+                type_badge.set_visible(True)
+                time_badge.set_text(time_str_full)
+                btn_edit.set_visible(True)
+
+        frame._adapt_responsive_width = adapt_width
 
         # Double-click to edit card
         edit_gesture = Gtk.GestureClick.new()
@@ -1031,9 +1141,6 @@ class CalendarView(Gtk.Box):
         content_box.add_controller(edit_gesture)
 
         card.append(content_box)
-
-        # Make center body draggable across time and dates
-        self._make_widget_draggable(card, item.id)
 
         # 3. Inferior Limit Resize Handle (Bottom Edge)
         bot_handle = Gtk.Box()
@@ -1059,13 +1166,13 @@ class CalendarView(Gtk.Box):
         drag_bot.connect("drag-end", on_bot_drag_end)
         bot_handle.add_controller(drag_bot)
 
-        # Make frame draggable across time and dates
+        # Make entire frame draggable across time and dates
         self._make_widget_draggable(frame, item.id)
 
         return frame
 
     # ==========================================
-    # DRAG & DROP CONTROLLERS
+    # DRAG & DROP CONTROLLERS & ACTIONS
     # ==========================================
     def _make_widget_draggable(self, widget: Gtk.Widget, task_id: str):
         drag_source = Gtk.DragSource.new()
@@ -1075,17 +1182,66 @@ class CalendarView(Gtk.Box):
             val = GObject.Value(GObject.TYPE_STRING, tid)
             return Gdk.ContentProvider.new_for_value(val)
 
+        def on_drag_begin(ds, drag, w=widget):
+            try:
+                paintable = Gtk.WidgetPaintable.new(w)
+                ds.set_icon(paintable, 20, 20)
+            except Exception:
+                pass
+
         drag_source.connect("prepare", on_prepare)
+        drag_source.connect("drag-begin", on_drag_begin)
         widget.add_controller(drag_source)
 
-    def _attach_canvas_drop_target(self, widget: Gtk.Widget, target_date: str):
+    def _attach_canvas_drop_target(self, widget: Gtk.Widget, target_date: str, drop_indicator: Gtk.Box = None, drop_badge: Gtk.Label = None):
         drop_target = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
 
         def on_motion(dt, x, y):
             fraction = max(0.0, min(1.0, y / float(TOTAL_HEIGHT)))
-            min_val = int(DAY_START_HOUR * 60 + fraction * (TOTAL_HOURS * 60))
-            time_str = format_minutes_to_time(min_val)
-            self.guide_label.set_text(f"◷ Drop to schedule at {time_str}")
+            raw_min = int(DAY_START_HOUR * 60 + fraction * (TOTAL_HOURS * 60))
+            snapped_min = max(DAY_START_HOUR * 60, min(DAY_END_HOUR * 60 - 5, round(raw_min / 5.0) * 5))
+            time_str = format_minutes_to_time(snapped_min)
+            mins_from_start = max(0, snapped_min - (DAY_START_HOUR * 60))
+            indicator_y = int(mins_from_start * (HOUR_HEIGHT / 60.0))
+
+            if drop_indicator and drop_badge:
+                drop_badge.set_text(time_str)
+                canvas_w = max(60, widget.get_width() - 8)
+                drop_indicator.set_size_request(canvas_w, 20)
+                widget.move(drop_indicator, 4, max(0, indicator_y - 10))
+                drop_indicator.set_visible(True)
+
+            self.guide_label.set_text(f"◷ Sched: {time_str}")
+            self.guide_label.set_visible(True)
+            return Gdk.DragAction.MOVE
+
+        def on_leave(dt):
+            if drop_indicator:
+                drop_indicator.set_visible(False)
+            self.guide_label.set_visible(False)
+
+        def on_drop(dt, val, x, y):
+            if drop_indicator:
+                drop_indicator.set_visible(False)
+            self.guide_label.set_visible(False)
+            task_id = str(val)
+            fraction = max(0.0, min(1.0, y / float(TOTAL_HEIGHT)))
+            raw_min = int(DAY_START_HOUR * 60 + fraction * (TOTAL_HOURS * 60))
+            snapped_min = max(DAY_START_HOUR * 60, min(DAY_END_HOUR * 60 - 5, round(raw_min / 5.0) * 5))
+            scheduled_time = format_minutes_to_time(snapped_min)
+            self._on_task_dropped(task_id, target_date, scheduled_time)
+            return True
+
+        drop_target.connect("motion", on_motion)
+        drop_target.connect("leave", on_leave)
+        drop_target.connect("drop", on_drop)
+        widget.add_controller(drop_target)
+
+    def _attach_unassign_drop_target(self, widget: Gtk.Widget):
+        drop_target = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
+
+        def on_motion(dt, x, y):
+            self.guide_label.set_text("↩ Drop here to unassign from calendar")
             self.guide_label.set_visible(True)
             return Gdk.DragAction.MOVE
 
@@ -1095,10 +1251,7 @@ class CalendarView(Gtk.Box):
         def on_drop(dt, val, x, y):
             self.guide_label.set_visible(False)
             task_id = str(val)
-            fraction = max(0.0, min(1.0, y / float(TOTAL_HEIGHT)))
-            min_val = int(DAY_START_HOUR * 60 + fraction * (TOTAL_HOURS * 60))
-            scheduled_time = format_minutes_to_time(min_val)
-            self._on_task_dropped(task_id, target_date, scheduled_time)
+            self._unassign_task(task_id)
             return True
 
         drop_target.connect("motion", on_motion)
@@ -1108,6 +1261,21 @@ class CalendarView(Gtk.Box):
 
     def _on_task_dropped(self, task_id: str, target_date: str, target_time: str):
         self.storage.update_task(task_id, scheduled_date=target_date, scheduled_time=target_time)
+        self.refresh()
+
+    def _toggle_calendar_item_done(self, item: Task):
+        is_completed = (item.status == "done" or getattr(item, "logged_to_journal", False))
+        if is_completed:
+            self.storage.complete_task(item.id, False)
+            self.refresh()
+        else:
+            if getattr(item, "item_type", "task") == "event":
+                self._prompt_log_event(item)
+            else:
+                self._prompt_complete_task(item)
+
+    def _delete_calendar_item(self, item: Task):
+        self.storage.delete_task(item.id)
         self.refresh()
 
     def _complete_task(self, task_id: str, is_done: bool):
@@ -1147,17 +1315,24 @@ class CalendarView(Gtk.Box):
     # ==========================================
     # MULTI-DAY & MONTH VIEWS
     # ==========================================
-    def _render_multiday_view(self, start_date: datetime, num_days: int):
+    def _render_multiday_view(self, start_date: datetime, num_days: int, pending_unassigned: list = None, past_missed: list = None):
+        paned = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        paned.set_vexpand(True)
+        paned.set_hexpand(True)
+        self.content_area.append(paned)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
-        self.content_area.append(scrolled)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        paned.append(scrolled)
 
         columns_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         columns_box.set_hexpand(True)
         scrolled.set_child(columns_box)
 
         days_short = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        min_col_w = 260 if num_days == 3 else 210
 
         for day_idx in range(num_days):
             d_current = start_date + timedelta(days=day_idx)
@@ -1166,6 +1341,7 @@ class CalendarView(Gtk.Box):
 
             col_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             col_box.set_hexpand(True)
+            col_box.set_size_request(min_col_w, -1)
             col_box.add_css_class("card-box")
 
             header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1178,6 +1354,10 @@ class CalendarView(Gtk.Box):
             day_timeline = self._create_day_timeline(d_str, show_ruler=(day_idx == 0))
             col_box.append(day_timeline)
             columns_box.append(col_box)
+
+        # Unassigned Tasks Drawer on RIGHT in multiday view (if open)
+        if self.drawer_stage != "closed":
+            paned.append(self._build_unassigned_drawer(pending_unassigned or [], past_missed or []))
 
     def _render_month_view(self):
         scrolled = Gtk.ScrolledWindow()

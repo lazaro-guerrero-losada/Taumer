@@ -792,11 +792,13 @@ class StorageManager:
 
     def unassign_task_schedule(self, task_id: str):
         """
-        Clears the scheduled date and time of a task so it returns to unassigned tasks.
+        Clears the scheduled date, time, and duration of a task so it returns to unassigned / undefined tasks.
         """
         for t in self.tasks:
             if t.id == task_id:
                 t.scheduled_date = None
                 t.scheduled_time = None
+                t.scheduled_duration = None
+                t.is_open_ended = True
                 break
         self.save_tasks()
