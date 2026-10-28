@@ -39,3 +39,6 @@ app_backup/
 # Obsidian internal vault folder
 .obsidian/
 .trash/
+
+# Local parallel demo & showcase tooling
+parallel_app/
