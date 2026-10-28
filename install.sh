@@ -64,15 +64,20 @@ StartupNotify=true
 EOF
     chmod +x "$HOME/Desktop/Taumer.desktop"
     gio set "$HOME/Desktop/Taumer.desktop" metadata::trusted true 2>/dev/null || true
+    gio set "$HOME/Desktop/Taumer.desktop" metadata::custom-icon "file://$REPO_DIR/app/taumer.png" 2>/dev/null || true
     touch "$HOME/Desktop/Taumer.desktop"
 fi
 
-# 5. Clear Nemo desktop icon thumbnail cache so new icon renders immediately
-rm -rf "$HOME/.cache/thumbnails/normal/"*taumer* "$HOME/.cache/thumbnails/large/"*taumer* 2>/dev/null || true
+# 5. Clear desktop icon thumbnail cache & reload nemo-desktop
+rm -rf "$HOME/.cache/thumbnails/normal/"* "$HOME/.cache/thumbnails/large/"* 2>/dev/null || true
 
 # Update icon cache if available
 if command -v gtk-update-icon-cache &>/dev/null; then
     gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+fi
+
+if command -v killall &>/dev/null && pgrep -x nemo-desktop &>/dev/null; then
+    killall nemo-desktop 2>/dev/null || true
 fi
 
 echo "✓ Taumer installed successfully!"
