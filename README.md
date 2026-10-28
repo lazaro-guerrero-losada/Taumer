@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="app/taumer.svg" width="220" alt="Taumer Logo" />
+</p>
+
 # Taumer 🦈
 
 > **Native Linux Task, Focus & Activity Tracker with Seamless Obsidian Integration.**
@@ -8,7 +12,7 @@ Taumer is a lightweight productivity application designed for Linux (Linux Mint,
 
 ## ✨ Features
 
-- **🦈 ASCII Shark Focus Timer**: An interactive focus and Pomodoro timer featuring animated ASCII shark visuals that react to timer states and cursor interaction.
+- **🦈 ASCII Shark Focus Timer**: An interactive focus and Pomodoro timer featuring animated ASCII shark visuals (adapted from [ascii-sharks](https://github.com/stackedlol/ascii-sharks)) that react to timer states and cursor interaction.
 - **📅 Time-Blocking & Daily Planner**: Plan tasks, fixed events, and open-ended focus blocks directly on an interactive daily grid.
 - **📓 Direct Obsidian Integration**:
   - Automatically exports daily journals formatted in clean Markdown (`Diario/YYYY-MM-DD.md`) with YAML frontmatter.
@@ -88,6 +92,12 @@ sudo apt install -y \
 ├── requirements.txt         # Python dependencies
 └── README.md
 ```
+
+---
+
+## 🙏 Credits & Acknowledgments
+
+- **ASCII Sharks Animation**: Special thanks to [stackedlol/ascii-sharks](https://github.com/stackedlol/ascii-sharks) for the interactive ASCII shark canvas and animations that power Taumer's focus timer.
 
 ---
 
