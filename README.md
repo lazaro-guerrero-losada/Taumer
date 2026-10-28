@@ -38,9 +38,9 @@ An ambient deep-work environment featuring real-time ASCII ocean animations that
 </p>
 
 <p align="center">
-  <em>Active Focus Session with Running Mechanical Flap Stopwatch:</em>
+  <em>Live Active Focus Session (Running Mechanical Flap Stopwatch & Ambient ASCII Ocean):</em>
   <br />
-  <img src="screenshots/01_home_focus_active.png" alt="Taumer Home Focus Space - Active" width="920" />
+  <img src="screenshots/taumer_focus_demo.gif" alt="Taumer Home Focus Space - Live Demo" width="920" />
 </p>
 
 - **Real-Time ASCII Sharks Ocean**: GPU-accelerated ASCII simulation running seamlessly in the background (powered by [ascii-sharks](https://github.com/stackedlol/ascii-sharks)).
