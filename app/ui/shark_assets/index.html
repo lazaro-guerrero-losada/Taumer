@@ -734,6 +734,8 @@
       const btnStop = document.getElementById(`btn-stop-${slotIdx}`);
       const btnSave = document.getElementById(`btn-save-${slotIdx}`);
       const btnReset = document.getElementById(`btn-reset-${slotIdx}`);
+      const input = document.getElementById(`task-input-${slotIdx}`);
+      const hasContent = (input && input.value.trim().length > 0) || (slot.title && slot.title.trim().length > 0);
 
       if (slot.running) {
         iconToggle.innerHTML = PAUSE_SVG_HTML;
@@ -744,10 +746,12 @@
         iconToggle.innerHTML = PLAY_SVG_HTML;
         btnStop.disabled = (slot.seconds === 0);
         btnSave.disabled = (slot.seconds === 0);
-        if (slotIdx === 0) {
-          btnReset.disabled = (slot.seconds === 0);
-        } else {
+
+        if (slotIdx === 1) {
           btnReset.disabled = false;
+        } else {
+          // Slot 0 X button is enabled if parallel slot is active, or if it has seconds/content
+          btnReset.disabled = !(slots[1].active || slot.seconds > 0 || hasContent);
         }
       }
 
@@ -762,17 +766,23 @@
       if (slot.running) {
         // Pause
         slot.running = false;
-        clearInterval(slot.interval);
-        slot.interval = null;
+        if (slot.interval) {
+          clearInterval(slot.interval);
+          slot.interval = null;
+        }
         renderSlotFlap(slotIdx);
         notifyPython({ action: "pause_timer", slot: slotIdx, seconds: slot.seconds });
       } else {
         // Start
+        if (slot.interval) {
+          clearInterval(slot.interval);
+          slot.interval = null;
+        }
         slot.running = true;
         slot.interval = setInterval(() => {
           slot.seconds++;
           renderSlotFlap(slotIdx);
-          if (slot.seconds % 10 === 0) {
+          if (slot.seconds % 5 === 0) {
             notifyPython({
               action: "tick",
               slot: slotIdx,
@@ -799,8 +809,10 @@
       const slot = slots[slotIdx];
       if (slot.running) {
         slot.running = false;
-        clearInterval(slot.interval);
-        slot.interval = null;
+        if (slot.interval) {
+          clearInterval(slot.interval);
+          slot.interval = null;
+        }
       }
       renderSlotFlap(slotIdx);
       notifyPython({ action: "stop_timer", slot: slotIdx, seconds: slot.seconds });
@@ -808,14 +820,18 @@
 
     function saveSession(slotIdx) {
       const slot = slots[slotIdx];
-      if (slot.seconds === 0) return;
+      if (slot.seconds === 0 && !slot.running) return;
       const input = document.getElementById(`task-input-${slotIdx}`);
       const title = input.value.trim() || (slotIdx === 0 ? "Focus Session" : "Parallel Session");
-      const seconds = slot.seconds;
+      const seconds = Math.max(1, slot.seconds);
+      const project = slot.project || "General";
+      const taskId = slot.taskId;
 
       if (slot.running) {
-        clearInterval(slot.interval);
-        slot.interval = null;
+        if (slot.interval) {
+          clearInterval(slot.interval);
+          slot.interval = null;
+        }
         slot.running = false;
       }
 
@@ -823,37 +839,229 @@
         action: "save_session",
         slot: slotIdx,
         title: title,
-        project: slot.project,
+        project: project,
         seconds: seconds,
-        taskId: slot.taskId
+        taskId: taskId
       });
 
-      slot.seconds = 0;
-      slot.taskId = null;
-      input.value = "";
-      renderSlotFlap(slotIdx);
+      // Update UI after saving:
+      if (slots[1].active) {
+        if (slotIdx === 0) {
+          // Promote slot 1 to slot 0
+          slots[0].title = slots[1].title;
+          slots[0].project = slots[1].project;
+          slots[0].taskId = slots[1].taskId;
+          slots[0].seconds = slots[1].seconds;
+          const slot1WasRunning = slots[1].running;
 
-      if (slotIdx === 1) {
-        removeParallelSlot();
+          if (slots[1].interval) {
+            clearInterval(slots[1].interval);
+            slots[1].interval = null;
+          }
+          slots[1].running = false;
+
+          if (slot1WasRunning) {
+            slots[0].running = true;
+            slots[0].interval = setInterval(() => {
+              slots[0].seconds++;
+              renderSlotFlap(0);
+              if (slots[0].seconds % 5 === 0) {
+                notifyPython({
+                  action: "tick",
+                  slot: 0,
+                  seconds: slots[0].seconds,
+                  title: slots[0].title,
+                  project: slots[0].project,
+                  taskId: slots[0].taskId
+                });
+              }
+            }, 1000);
+          } else {
+            slots[0].running = false;
+            slots[0].interval = null;
+          }
+
+          document.getElementById("task-input-0").value = slots[0].title;
+          document.getElementById("proj-selected-name-0").textContent = slots[0].project;
+          renderSlotFlap(0);
+
+          // Hide and clear slot 1
+          slots[1].active = false;
+          slots[1].seconds = 0;
+          slots[1].taskId = null;
+          slots[1].title = "";
+          slots[1].project = "General";
+          document.getElementById("task-input-1").value = "";
+          document.getElementById("proj-selected-name-1").textContent = "General";
+          slot1El.style.display = "none";
+          btnAddTask.style.display = "flex";
+
+          renderProjectMenus();
+          updateBadge();
+
+          notifyPython({
+            action: "promote_slot_1",
+            slot0: {
+              running: slots[0].running,
+              seconds: slots[0].seconds,
+              title: slots[0].title,
+              project: slots[0].project,
+              taskId: slots[0].taskId
+            }
+          });
+        } else {
+          // Slot 1 was saved: remove slot 1
+          slots[1].active = false;
+          slots[1].seconds = 0;
+          slots[1].taskId = null;
+          slots[1].title = "";
+          slots[1].project = "General";
+          document.getElementById("task-input-1").value = "";
+          document.getElementById("proj-selected-name-1").textContent = "General";
+          slot1El.style.display = "none";
+          btnAddTask.style.display = "flex";
+
+          renderSlotFlap(0);
+          renderProjectMenus();
+          updateBadge();
+
+          notifyPython({ action: "delete_slot", slot: 1 });
+        }
+      } else {
+        // Only slot 0: clear and leave empty
+        slots[0].seconds = 0;
+        slots[0].taskId = null;
+        slots[0].title = "";
+        slots[0].project = "General";
+        document.getElementById("task-input-0").value = "";
+        document.getElementById("proj-selected-name-0").textContent = "General";
+        renderSlotFlap(0);
+        renderProjectMenus();
+        updateBadge();
       }
     }
 
-    function resetTimer(slotIdx) {
-      const slot = slots[slotIdx];
-      if (slot.running) {
-        clearInterval(slot.interval);
-        slot.interval = null;
-        slot.running = false;
-      }
+    function deleteSlot(slotIdx) {
+      if (slots[1].active) {
+        if (slotIdx === 0) {
+          // Deleting Slot 0: Promote Slot 1 to Slot 0
+          if (slots[0].running) {
+            if (slots[0].interval) {
+              clearInterval(slots[0].interval);
+              slots[0].interval = null;
+            }
+            slots[0].running = false;
+          }
 
-      if (slotIdx === 1) {
-        removeParallelSlot();
+          slots[0].title = slots[1].title;
+          slots[0].project = slots[1].project;
+          slots[0].taskId = slots[1].taskId;
+          slots[0].seconds = slots[1].seconds;
+          const slot1WasRunning = slots[1].running;
+
+          if (slots[1].interval) {
+            clearInterval(slots[1].interval);
+            slots[1].interval = null;
+          }
+          slots[1].running = false;
+
+          if (slot1WasRunning) {
+            slots[0].running = true;
+            slots[0].interval = setInterval(() => {
+              slots[0].seconds++;
+              renderSlotFlap(0);
+              if (slots[0].seconds % 5 === 0) {
+                notifyPython({
+                  action: "tick",
+                  slot: 0,
+                  seconds: slots[0].seconds,
+                  title: slots[0].title,
+                  project: slots[0].project,
+                  taskId: slots[0].taskId
+                });
+              }
+            }, 1000);
+          } else {
+            slots[0].running = false;
+            slots[0].interval = null;
+          }
+
+          document.getElementById("task-input-0").value = slots[0].title;
+          document.getElementById("proj-selected-name-0").textContent = slots[0].project;
+          renderSlotFlap(0);
+
+          // Clear & hide Slot 1
+          slots[1].active = false;
+          slots[1].seconds = 0;
+          slots[1].taskId = null;
+          slots[1].title = "";
+          slots[1].project = "General";
+          document.getElementById("task-input-1").value = "";
+          document.getElementById("proj-selected-name-1").textContent = "General";
+          slot1El.style.display = "none";
+          btnAddTask.style.display = "flex";
+
+          renderProjectMenus();
+          updateBadge();
+
+          notifyPython({
+            action: "promote_slot_1",
+            slot0: {
+              running: slots[0].running,
+              seconds: slots[0].seconds,
+              title: slots[0].title,
+              project: slots[0].project,
+              taskId: slots[0].taskId
+            }
+          });
+        } else {
+          // Deleting Slot 1
+          if (slots[1].running) {
+            if (slots[1].interval) {
+              clearInterval(slots[1].interval);
+              slots[1].interval = null;
+            }
+            slots[1].running = false;
+          }
+          slots[1].active = false;
+          slots[1].seconds = 0;
+          slots[1].taskId = null;
+          slots[1].title = "";
+          slots[1].project = "General";
+          document.getElementById("task-input-1").value = "";
+          document.getElementById("proj-selected-name-1").textContent = "General";
+          slot1El.style.display = "none";
+          btnAddTask.style.display = "flex";
+
+          renderSlotFlap(0);
+          renderProjectMenus();
+          updateBadge();
+
+          notifyPython({ action: "delete_slot", slot: 1 });
+        }
       } else {
-        slot.seconds = 0;
-        slot.taskId = null;
+        // Only ONE slot: reset to completely empty to start a new one
+        if (slots[0].running) {
+          if (slots[0].interval) {
+            clearInterval(slots[0].interval);
+            slots[0].interval = null;
+          }
+          slots[0].running = false;
+        }
+        slots[0].seconds = 0;
+        slots[0].taskId = null;
+        slots[0].title = "";
+        slots[0].project = "General";
+        document.getElementById("task-input-0").value = "";
+        document.getElementById("proj-selected-name-0").textContent = "General";
+        btnAddTask.style.display = "flex";
+
         renderSlotFlap(0);
+        renderProjectMenus();
+        updateBadge();
+
+        notifyPython({ action: "reset_timer", slot: 0 });
       }
-      notifyPython({ action: "reset_timer", slot: slotIdx });
     }
 
     function addParallelSlot() {
@@ -862,23 +1070,14 @@
       slots[1].running = false;
       slot1El.style.display = "flex";
       btnAddTask.style.display = "none";
+      renderSlotFlap(0);
       renderSlotFlap(1);
       document.getElementById("task-input-1").focus();
+      notifyPython({ action: "add_parallel_slot" });
     }
 
     function removeParallelSlot() {
-      slots[1].active = false;
-      if (slots[1].running) {
-        clearInterval(slots[1].interval);
-        slots[1].interval = null;
-        slots[1].running = false;
-      }
-      slots[1].seconds = 0;
-      slots[1].taskId = null;
-      document.getElementById("task-input-1").value = "";
-      slot1El.style.display = "none";
-      btnAddTask.style.display = "flex";
-      updateBadge();
+      deleteSlot(1);
     }
 
     btnAddTask.addEventListener("click", addParallelSlot);
@@ -898,7 +1097,7 @@
       btnToggle.addEventListener("click", () => toggleTimer(i));
       btnStop.addEventListener("click", () => stopTimer(i));
       btnSave.addEventListener("click", () => saveSession(i));
-      btnReset.addEventListener("click", () => resetTimer(i));
+      btnReset.addEventListener("click", () => deleteSlot(i));
 
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
@@ -908,6 +1107,7 @@
 
       input.addEventListener("input", () => {
         slots[i].title = input.value;
+        renderSlotFlap(i);
         notifyPython({ action: "input_changed", slot: i, title: input.value });
       });
 
