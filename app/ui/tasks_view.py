@@ -177,7 +177,15 @@ class TasksView(Gtk.Box):
         proj_name = proj.name if proj else "General"
         icon = proj.icon if proj else "●"
 
-        task = Task(title=text, project=proj_name, icon=icon, priority="medium", estimated_minutes=30)
+        task = Task(
+            title=text,
+            project=proj_name,
+            icon=icon,
+            priority="medium",
+            estimated_minutes=30,
+            scheduled_duration=None,
+            is_open_ended=True
+        )
         self.storage.add_task(task)
         self.quick_entry.set_text("")
         self.refresh()
@@ -254,9 +262,18 @@ class TasksView(Gtk.Box):
             prio_lbl.add_css_class(prio_css)
             top_row.append(prio_lbl)
 
-        # Duration
-        dur_lbl = Gtk.Label(label=f"{task.estimated_minutes}m")
-        dur_lbl.add_css_class("tag-pill")
+        # Duration badge
+        is_open = getattr(task, "is_open_ended", False) or (task.scheduled_duration is None)
+        if task.status == "done" and getattr(task, "actual_minutes", None):
+            dur_lbl = Gtk.Label(label=f"✓ {task.actual_minutes}m")
+            dur_lbl.add_css_class("tag-pill-completed")
+        elif is_open and task.status != "done":
+            dur_lbl = Gtk.Label(label="◈ Open-ended")
+            dur_lbl.add_css_class("tag-pill-open")
+        else:
+            dur_val = task.scheduled_duration or task.estimated_minutes
+            dur_lbl = Gtk.Label(label=f"{dur_val}m" if dur_val else "◈ Open-ended")
+            dur_lbl.add_css_class("tag-pill")
         top_row.append(dur_lbl)
 
         # Scheduled badge

@@ -43,3 +43,7 @@ app_backup/
 # Local parallel demo & showcase tooling
 parallel_app/
 /taumer_focus_demo.gif
+
+# Raw user uploads / workspace source assets
+Logo taumer*
+*.vectorcraft

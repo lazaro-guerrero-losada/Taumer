@@ -6,7 +6,7 @@ Apple-style clean, user-friendly modals with monochrome typography and restraine
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Gdk
+from gi.repository import Gtk, Adw, Gdk, GLib
 import re
 from datetime import datetime, timedelta
 from models import Task, JournalEntry, Project
@@ -258,14 +258,21 @@ class NewTaskDialog(Gtk.Window):
         row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         vbox.append(row2)
 
-        # Scheduled Date (YYYY-MM-DD)
+        # Scheduled Date (YYYY-MM-DD) with Tiny Calendar Menu
         date_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         date_box.set_hexpand(True)
         lbl_date = Gtk.Label(label="Scheduled Date")
         lbl_date.add_css_class("text-muted")
         lbl_date.set_halign(Gtk.Align.START)
+
+        date_input_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
         self.date_entry = Gtk.Entry()
         self.date_entry.set_placeholder_text("YYYY-MM-DD or 4/11")
+        self.date_entry.set_hexpand(True)
+        self.date_entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, "x-office-calendar-symbolic")
+        self.date_entry.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "Open calendar")
+
         if self.edit_task and getattr(self.edit_task, "scheduled_date", None):
             self.date_entry.set_text(self.edit_task.scheduled_date)
         elif self.prefill_date:
@@ -273,8 +280,26 @@ class NewTaskDialog(Gtk.Window):
         elif self.item_type == "event":
             self.date_entry.set_text(datetime.now().strftime("%Y-%m-%d"))
         self.date_entry.connect("activate", self._on_save)
+        date_input_row.append(self.date_entry)
+
+        # Tiny calendar popover menu button
+        self.date_picker_btn = Gtk.MenuButton()
+        self.date_picker_btn.set_icon_name("x-office-calendar-symbolic")
+        self.date_picker_btn.add_css_class("btn-secondary")
+        self.date_picker_btn.add_css_class("date-picker-btn")
+        self.date_picker_btn.set_tooltip_text("Select date from calendar")
+
+        self.date_popover = Gtk.Popover()
+        self.date_popover.add_css_class("calendar-popover")
+        self.date_picker_btn.set_popover(self.date_popover)
+
+        self._build_calendar_popover()
+
+        self.date_entry.connect("icon-press", lambda e, pos: self.date_picker_btn.set_active(True))
+        date_input_row.append(self.date_picker_btn)
+
         date_box.append(lbl_date)
-        date_box.append(self.date_entry)
+        date_box.append(date_input_row)
         row2.append(date_box)
 
         # Scheduled Time (HH:MM)
@@ -392,6 +417,84 @@ class NewTaskDialog(Gtk.Window):
         save_btn.add_css_class("btn-primary")
         save_btn.connect("clicked", self._on_save)
         btn_box.append(save_btn)
+
+    def _build_calendar_popover(self):
+        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        pop_box.set_margin_top(8)
+        pop_box.set_margin_bottom(8)
+        pop_box.set_margin_start(8)
+        pop_box.set_margin_end(8)
+
+        # Quick preset chips
+        chips_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        chips_row.set_halign(Gtk.Align.CENTER)
+
+        btn_today = Gtk.Button(label="Today")
+        btn_today.add_css_class("btn-secondary")
+        btn_today.add_css_class("date-chip-btn")
+        btn_today.connect("clicked", lambda b: self._select_preset_date(0))
+        chips_row.append(btn_today)
+
+        btn_tomorrow = Gtk.Button(label="Tomorrow")
+        btn_tomorrow.add_css_class("btn-secondary")
+        btn_tomorrow.add_css_class("date-chip-btn")
+        btn_tomorrow.connect("clicked", lambda b: self._select_preset_date(1))
+        chips_row.append(btn_tomorrow)
+
+        btn_clear = Gtk.Button(label="Clear")
+        btn_clear.add_css_class("btn-ghost")
+        btn_clear.add_css_class("date-chip-btn")
+        btn_clear.connect("clicked", lambda b: self._clear_date())
+        chips_row.append(btn_clear)
+
+        pop_box.append(chips_row)
+
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        pop_box.append(sep)
+
+        # Calendar widget
+        self.cal_widget = Gtk.Calendar()
+        self.cal_widget.add_css_class("compact-date-calendar")
+        self.cal_widget.connect("day-selected", self._on_calendar_day_selected)
+        pop_box.append(self.cal_widget)
+
+        self.date_popover.set_child(pop_box)
+        self.date_picker_btn.connect("notify::active", self._on_popover_active_changed)
+
+    def _on_popover_active_changed(self, btn, param):
+        if not btn.get_active():
+            return
+        cur_text = self.date_entry.get_text().strip()
+        norm = normalize_date_input(cur_text)
+        self._cal_syncing = True
+        try:
+            if norm and re.match(r"^\d{4}-\d{2}-\d{2}$", norm):
+                y, m, d = [int(p) for p in norm.split("-")]
+                dt = GLib.DateTime.new_local(y, m, d, 0, 0, 0)
+                self.cal_widget.select_day(dt)
+            else:
+                self.cal_widget.select_day(GLib.DateTime.new_now_local())
+        except Exception:
+            self.cal_widget.select_day(GLib.DateTime.new_now_local())
+        finally:
+            self._cal_syncing = False
+
+    def _select_preset_date(self, offset_days: int):
+        target = datetime.now() + timedelta(days=offset_days)
+        self.date_entry.set_text(target.strftime("%Y-%m-%d"))
+        self.date_popover.popdown()
+
+    def _clear_date(self):
+        self.date_entry.set_text("")
+        self.date_popover.popdown()
+
+    def _on_calendar_day_selected(self, cal):
+        if getattr(self, "_cal_syncing", False):
+            return
+        dt = cal.get_date()
+        if dt:
+            self.date_entry.set_text(dt.format("%Y-%m-%d"))
+            self.date_popover.popdown()
 
     def _on_save(self, *args):
         title = self.title_entry.get_text().strip()
@@ -524,6 +627,11 @@ class TaskCompletionDialog(Gtk.Window):
             else:
                 time_info += " (open-ended)"
             lbl_time_info = Gtk.Label(label=time_info)
+            lbl_time_info.add_css_class("text-muted")
+            lbl_time_info.set_halign(Gtk.Align.START)
+            title_box.append(lbl_time_info)
+        elif is_open:
+            lbl_time_info = Gtk.Label(label="◈ Open-ended task (no set time limit)")
             lbl_time_info.add_css_class("text-muted")
             lbl_time_info.set_halign(Gtk.Align.START)
             title_box.append(lbl_time_info)
