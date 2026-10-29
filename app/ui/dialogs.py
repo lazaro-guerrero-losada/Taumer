@@ -258,20 +258,16 @@ class NewTaskDialog(Gtk.Window):
         row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         vbox.append(row2)
 
-        # Scheduled Date (YYYY-MM-DD) with Tiny Calendar Menu
+        # Scheduled Date (YYYY-MM-DD)
         date_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         date_box.set_hexpand(True)
         lbl_date = Gtk.Label(label="Scheduled Date")
         lbl_date.add_css_class("text-muted")
         lbl_date.set_halign(Gtk.Align.START)
 
-        date_input_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-
         self.date_entry = Gtk.Entry()
         self.date_entry.set_placeholder_text("YYYY-MM-DD or 4/11")
         self.date_entry.set_hexpand(True)
-        self.date_entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, "x-office-calendar-symbolic")
-        self.date_entry.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "Open calendar")
 
         if self.edit_task and getattr(self.edit_task, "scheduled_date", None):
             self.date_entry.set_text(self.edit_task.scheduled_date)
@@ -280,26 +276,21 @@ class NewTaskDialog(Gtk.Window):
         elif self.item_type == "event":
             self.date_entry.set_text(datetime.now().strftime("%Y-%m-%d"))
         self.date_entry.connect("activate", self._on_save)
-        date_input_row.append(self.date_entry)
 
-        # Tiny calendar popover menu button
-        self.date_picker_btn = Gtk.MenuButton()
-        self.date_picker_btn.set_icon_name("x-office-calendar-symbolic")
-        self.date_picker_btn.add_css_class("btn-secondary")
-        self.date_picker_btn.add_css_class("date-picker-btn")
-        self.date_picker_btn.set_tooltip_text("Select date from calendar")
-
+        # Calendar Popover attached directly to the date entry
         self.date_popover = Gtk.Popover()
         self.date_popover.add_css_class("calendar-popover")
-        self.date_picker_btn.set_popover(self.date_popover)
+        self.date_popover.set_parent(self.date_entry)
 
         self._build_calendar_popover()
 
-        self.date_entry.connect("icon-press", lambda e, pos: self.date_picker_btn.set_active(True))
-        date_input_row.append(self.date_picker_btn)
+        # Clicking on the date space pops up the calendar
+        date_click = Gtk.GestureClick()
+        date_click.connect("pressed", lambda g, n, x, y: self._show_date_popover())
+        self.date_entry.add_controller(date_click)
 
         date_box.append(lbl_date)
-        date_box.append(date_input_row)
+        date_box.append(self.date_entry)
         row2.append(date_box)
 
         # Scheduled Time (HH:MM)
@@ -419,15 +410,16 @@ class NewTaskDialog(Gtk.Window):
         btn_box.append(save_btn)
 
     def _build_calendar_popover(self):
-        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        pop_box.set_margin_top(8)
-        pop_box.set_margin_bottom(8)
-        pop_box.set_margin_start(8)
-        pop_box.set_margin_end(8)
+        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        pop_box.set_margin_top(6)
+        pop_box.set_margin_bottom(6)
+        pop_box.set_margin_start(6)
+        pop_box.set_margin_end(6)
 
         # Quick preset chips
         chips_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         chips_row.set_halign(Gtk.Align.CENTER)
+        chips_row.set_margin_bottom(4)
 
         btn_today = Gtk.Button(label="Today")
         btn_today.add_css_class("btn-secondary")
@@ -449,9 +441,6 @@ class NewTaskDialog(Gtk.Window):
 
         pop_box.append(chips_row)
 
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        pop_box.append(sep)
-
         # Calendar widget
         self.cal_widget = Gtk.Calendar()
         self.cal_widget.add_css_class("compact-date-calendar")
@@ -459,11 +448,8 @@ class NewTaskDialog(Gtk.Window):
         pop_box.append(self.cal_widget)
 
         self.date_popover.set_child(pop_box)
-        self.date_picker_btn.connect("notify::active", self._on_popover_active_changed)
 
-    def _on_popover_active_changed(self, btn, param):
-        if not btn.get_active():
-            return
+    def _show_date_popover(self):
         cur_text = self.date_entry.get_text().strip()
         norm = normalize_date_input(cur_text)
         self._cal_syncing = True
@@ -478,6 +464,7 @@ class NewTaskDialog(Gtk.Window):
             self.cal_widget.select_day(GLib.DateTime.new_now_local())
         finally:
             self._cal_syncing = False
+        self.date_popover.popup()
 
     def _select_preset_date(self, offset_days: int):
         target = datetime.now() + timedelta(days=offset_days)
@@ -826,7 +813,7 @@ class NewJournalEntryDialog(Gtk.Window):
         lbl_task.add_css_class("text-muted")
         lbl_task.set_halign(Gtk.Align.START)
 
-        self.pending_tasks = [t for t in self.storage.get_tasks() if t.status != "done"]
+        self.pending_tasks = [t for t in self.storage.get_tasks() if t.status != "done" and getattr(t, "item_type", "task") != "event"]
         task_names = ["(None / Free activity)"] + [f"✓ {t.title[:28]}..." if len(t.title) > 28 else f"✓ {t.title}" for t in self.pending_tasks]
         self.task_dropdown = Gtk.DropDown()
         self.task_dropdown.set_model(Gtk.StringList.new(task_names))

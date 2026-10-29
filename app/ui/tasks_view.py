@@ -203,6 +203,9 @@ class TasksView(Gtk.Box):
 
         filtered = []
         for t in all_tasks:
+            # Events only belong in the calendar, not in the tasks section
+            if getattr(t, "item_type", "task") == "event":
+                continue
             if self.selected_status_filter == "Pending" and t.status == "done":
                 continue
             if self.selected_status_filter == "Completed" and t.status != "done":

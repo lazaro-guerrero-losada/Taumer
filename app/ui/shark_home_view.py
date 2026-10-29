@@ -125,9 +125,9 @@ class SharkHomeView(Gtk.Box):
         proj_json = json.dumps(p_names)
         self._eval_js(f"window.setProjects({proj_json});")
 
-        # 2. Pending tasks (undone tasks for quick selection)
+        # 2. Pending tasks (undone tasks for quick selection, events excluded)
         tasks = self.storage.get_tasks()
-        pending = [t for t in tasks if t.status != "done"]
+        pending = [t for t in tasks if t.status != "done" and getattr(t, "item_type", "task") != "event"]
         tasks_data = [{"id": t.id, "title": t.title, "project": t.project} for t in pending]
         tasks_json = json.dumps(tasks_data)
         self._eval_js(f"window.setPendingTasks({tasks_json});")

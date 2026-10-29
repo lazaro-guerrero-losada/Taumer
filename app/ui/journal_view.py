@@ -819,7 +819,7 @@ class JournalView(Gtk.Box):
                 break
         self._updating_break_dropdown = False
 
-        self.pending_tasks = [t for t in self.storage.get_tasks() if t.status != "done"]
+        self.pending_tasks = [t for t in self.storage.get_tasks() if t.status != "done" and getattr(t, "item_type", "task") != "event"]
         task_names = ["Link task: (None)"] + [f"Complete: {t.title[:30]}..." if len(t.title) > 30 else f"Complete: {t.title}" for t in self.pending_tasks]
         self.retro_task_dropdown.set_model(Gtk.StringList.new(task_names))
 
