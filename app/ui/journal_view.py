@@ -396,46 +396,22 @@ class JournalView(Gtk.Box):
         stats_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         stats_row.set_margin_top(1)
 
-        self.tl_stat_start = Gtk.Label(label="Start: --:--")
-        self.tl_stat_start.add_css_class("tag-pill-project")
-        stats_row.append(self.tl_stat_start)
-
-        self.tl_stat_now = Gtk.Label(label="Now: --:--")
-        self.tl_stat_now.add_css_class("tag-pill")
-        stats_row.append(self.tl_stat_now)
-
         self.tl_stat_logged = Gtk.Label(label="Logged: 0h 0m")
         self.tl_stat_logged.add_css_class("tag-pill-success")
         stats_row.append(self.tl_stat_logged)
 
         self.tl_stat_gaps = Gtk.Label(label="Gaps: 0m")
-        self.tl_stat_gaps.add_css_class("tag-pill-alert")
+        self.tl_stat_gaps.add_css_class("tag-pill-gap")
         stats_row.append(self.tl_stat_gaps)
-
-        self.tl_stat_projected = Gtk.Label(label="Projected End: --:--")
-        self.tl_stat_projected.add_css_class("tag-pill")
-        stats_row.append(self.tl_stat_projected)
 
         stats_row.append(Gtk.Box(hexpand=True))
 
-        # Mode switcher: Colors (Compact) vs Details (Expanded)
-        mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        mode_box.add_css_class("segmented-bar")
-
-        self.btn_mode_compact = Gtk.Button(label="⊟ Colors")
-        self.btn_mode_compact.add_css_class("segmented-btn")
-        self.btn_mode_compact.add_css_class("active")
-        self.btn_mode_compact.set_tooltip_text("Compact color-only view: gaps visible at a glance")
-        self.btn_mode_compact.connect("clicked", lambda b: self._set_timeline_mode("compact"))
-
-        self.btn_mode_expanded = Gtk.Button(label="⊞ Details")
-        self.btn_mode_expanded.add_css_class("segmented-btn")
-        self.btn_mode_expanded.set_tooltip_text("Expanded view: full task names, timestamps, and drag handles")
-        self.btn_mode_expanded.connect("clicked", lambda b: self._set_timeline_mode("expanded"))
-
-        mode_box.append(self.btn_mode_compact)
-        mode_box.append(self.btn_mode_expanded)
-        stats_row.append(mode_box)
+        # Single mode toggle button: "><" (minimal) vs "<>" (expanded)
+        self.btn_timeline_toggle = Gtk.Button(label="><")
+        self.btn_timeline_toggle.add_css_class("mode-toggle-btn")
+        self.btn_timeline_toggle.set_tooltip_text("Expand timeline details (<>)")
+        self.btn_timeline_toggle.connect("clicked", lambda b: self._toggle_timeline_mode())
+        stats_row.append(self.btn_timeline_toggle)
 
         card.append(stats_row)
 
@@ -528,26 +504,27 @@ class JournalView(Gtk.Box):
 
         return card
 
+    def _toggle_timeline_mode(self):
+        new_mode = "expanded" if self.timeline_mode == "compact" else "compact"
+        self._set_timeline_mode(new_mode)
+
     def _set_timeline_mode(self, mode: str):
         if self.timeline_mode == mode:
             return
         self.timeline_mode = mode
         if mode == "compact":
-            self.btn_mode_compact.add_css_class("active")
-            self.btn_mode_expanded.remove_css_class("active")
-            self.timeline_area.set_content_height(46)
-            self.timeline_area.set_content_width(0)
-            self.timeline_area.set_hexpand(True)
+            if hasattr(self, "btn_timeline_toggle"):
+                self.btn_timeline_toggle.set_label("><")
+                self.btn_timeline_toggle.set_tooltip_text("Expand timeline details (<>)")
+            self.timeline_area.set_content_height(42)
         else:
-            self.btn_mode_compact.remove_css_class("active")
-            self.btn_mode_expanded.add_css_class("active")
-            self.timeline_area.set_content_height(86)
-            total_hours = max(1, (self.scale_end_m - self.scale_start_m) // 60)
-            self.timeline_area.set_content_width(max(1100, total_hours * 115))
-            self.timeline_area.set_hexpand(False)
+            if hasattr(self, "btn_timeline_toggle"):
+                self.btn_timeline_toggle.set_label("<>")
+                self.btn_timeline_toggle.set_tooltip_text("Compress to minimal colors (><)")
+            self.timeline_area.set_content_height(80)
             GLib.timeout_add(100, self._scroll_to_now)
 
-        self.timeline_area.queue_draw()
+        self._refresh_timeline()
 
     def _slide_timeline(self, delta: float):
         hadj = self.timeline_scrolled.get_hadjustment()
@@ -640,17 +617,42 @@ class JournalView(Gtk.Box):
             dlg = NewTaskDialog(win, self.storage, self.refresh, edit_task=task, default_type="task", prefill_date=today_str)
             dlg.present()
 
+    def _calculate_k_and_width(self):
+        elapsed_minutes = max(30, self.scale_end_m - self.scale_start_m)
+        elapsed_hours = elapsed_minutes / 60.0
+
+        scrolled_w = self.timeline_scrolled.get_width() if hasattr(self, "timeline_scrolled") else 900
+        if scrolled_w <= 100:
+            scrolled_w = 900
+        avail_w = max(350, scrolled_w - 28)
+
+        k_ideal = avail_w / elapsed_hours
+
+        if getattr(self, "timeline_mode", "compact") == "compact":
+            # Minimal mode: only color blocks, no text labels
+            k_min = 70.0
+            k_max = 240.0
+        else:
+            # Expanded mode: wider to show full task titles and timestamps
+            k_min = 150.0
+            k_max = 340.0
+
+        k = max(k_min, min(k_max, k_ideal))
+        track_w = max(avail_w, int(elapsed_hours * k))
+        content_w = track_w + 28
+        return k, track_w, content_w
+
     def _get_track_rect(self, width, height):
         track_x = 14
+        k, track_w, _ = self._calculate_k_and_width()
+        actual_w = max(track_w, width - 28)
         if getattr(self, "timeline_mode", "compact") == "compact":
-            track_y = 16
-            track_w = max(100, width - 28)
-            track_h = max(24, height - 22)
+            track_y = 14
+            track_h = max(22, height - 20)
         else:
-            track_y = 20
-            track_w = max(100, width - 28)
-            track_h = max(46, height - 26)
-        return track_x, track_y, track_w, track_h
+            track_y = 18
+            track_h = max(46, height - 24)
+        return track_x, track_y, actual_w, track_h
 
     def _minute_to_x(self, m: int) -> float:
         w = self.timeline_area.get_width()
@@ -738,49 +740,41 @@ class JournalView(Gtk.Box):
 
         self.timeline_items.sort(key=lambda it: it["start_m"])
 
-        # 2. Determine Scale Start Minute
+        # 2. Determine Scale Start Minute: Exactly the Arrival Time
         arr_m = parse_time_minutes(recon.arrival_time) if recon.arrival_time else None
-        if arr_m is not None and entry_starts:
-            min_m = min(arr_m, min(entry_starts))
-        elif arr_m is not None:
-            min_m = arr_m
+        if arr_m is not None:
+            self.scale_start_m = arr_m
         elif entry_starts:
-            min_m = min(entry_starts)
+            self.scale_start_m = min(entry_starts)
         else:
-            min_m = 8 * 60  # 08:00 default
+            self.scale_start_m = 8 * 60  # 08:00 default fallback
 
-        self.scale_start_m = max(0, (min_m // 60) * 60)
+        if entry_starts and min(entry_starts) < self.scale_start_m:
+            self.scale_start_m = min(entry_starts)
 
-        # 3. Determine Scale End Minute:
-        # Ensures coverage at least until 21:00 (or later if arrival/departure or activities extend later)
+        # 3. Determine Scale End Minute: Right limit is NOW (or latest logged/scheduled item)
         now = datetime.now()
         now_m = now.hour * 60 + now.minute
-        dep_m = parse_time_minutes(recon.departure_time) if recon.departure_time else None
-        exp_dep_str = recon.calculate_expected_departure_time(entries, break_project)
-        exp_dep_m = parse_time_minutes(exp_dep_str) if exp_dep_str else None
+        last_entry_m = max(entry_ends, default=now_m)
+        self.scale_end_m = max(now_m, last_entry_m)
 
-        last_entry_m = max(entry_ends, default=self.scale_start_m)
-        target_span = self.scale_start_m + (recon.target_work_minutes or 420) + (recon.target_break_minutes or 30)
+        # Minimum span of at least 30 minutes
+        if self.scale_end_m - self.scale_start_m < 30:
+            self.scale_end_m = self.scale_start_m + 30
 
-        candidates = [now_m + 60, last_entry_m + 60, target_span, 21 * 60]
-        if dep_m is not None:
-            candidates.append(dep_m + 30)
-        if exp_dep_m is not None:
-            candidates.append(exp_dep_m + 30)
-
-        max_m = max(candidates)
-        self.scale_end_m = min(24 * 60, ((max_m + 59) // 60) * 60)
-        if self.scale_end_m - self.scale_start_m < 300:
-            self.scale_end_m = min(24 * 60, self.scale_start_m + 300)
-
-        # Adjust width if in expanded mode
-        if getattr(self, "timeline_mode", "compact") == "expanded":
-            total_hours = max(1, (self.scale_end_m - self.scale_start_m) // 60)
-            self.timeline_area.set_content_width(max(1100, total_hours * 115))
+        # Adjust width dynamically based on k parameter and elapsed hours
+        k, track_w, content_w = self._calculate_k_and_width()
+        scrolled_w = self.timeline_scrolled.get_width() if hasattr(self, "timeline_scrolled") else 900
+        if content_w > scrolled_w:
+            self.timeline_area.set_content_width(content_w)
+            self.timeline_area.set_hexpand(False)
+        else:
+            self.timeline_area.set_content_width(0)
+            self.timeline_area.set_hexpand(True)
 
         # 4. Calculate Gaps
         self.timeline_gaps = []
-        cur_m = arr_m if (arr_m is not None and arr_m >= self.scale_start_m) else self.scale_start_m
+        cur_m = self.scale_start_m
         limit_m = min(now_m, self.scale_end_m)
 
         for it in self.timeline_items:
@@ -801,26 +795,15 @@ class JournalView(Gtk.Box):
                 "duration_m": limit_m - cur_m
             })
 
-        # 5. Update Stat Badges
-        start_display = recon.arrival_time if recon.arrival_time else (format_minutes_to_time(min(entry_starts)) if entry_starts else "08:00")
-        self.tl_stat_start.set_text(f"Start: {start_display}")
-        self.tl_stat_now.set_text(f"Now: {now.strftime('%H:%M')}")
-
-        total_logged_m = sum(it["duration_m"] for it in self.timeline_items)
+        # 5. Update Stat Badges (Only Logged and Gaps, as requested)
+        total_logged_m = sum(it["duration_m"] for it in self.timeline_items if not it.get("is_task"))
         tl_h, tl_mins = total_logged_m // 60, total_logged_m % 60
-        self.tl_stat_logged.set_text(f"Logged: {tl_h}h {tl_mins:02d}m ({len(self.timeline_items)} activities)")
+        self.tl_stat_logged.set_text(f"Logged: {tl_h}h {tl_mins:02d}m")
 
         total_gap_m = sum(g["duration_m"] for g in self.timeline_gaps)
         tg_h, tg_mins = total_gap_m // 60, total_gap_m % 60
         gap_text = f"Gaps: {tg_h}h {tg_mins:02d}m" if tg_h > 0 else f"Gaps: {tg_mins}m"
-        self.tl_stat_gaps.set_text(f"{gap_text} ({len(self.timeline_gaps)} slots)")
-
-        if exp_dep_str:
-            self.tl_stat_projected.set_text(f"Projected End: {exp_dep_str}")
-        elif recon.departure_time:
-            self.tl_stat_projected.set_text(f"Departure: {recon.departure_time}")
-        else:
-            self.tl_stat_projected.set_text(f"Target: {recon.target_work_minutes // 60}h")
+        self.tl_stat_gaps.set_text(f"{gap_text}")
 
         if recon.arrival_time:
             arr_text = f"Workday: {recon.arrival_time}"
@@ -856,9 +839,33 @@ class JournalView(Gtk.Box):
         # 2. Hour Ticks and Guidelines
         pango_desc = Pango.FontDescription("sans 8.5")
 
-        for h in range(self.scale_start_m // 60, (self.scale_end_m // 60) + 1):
+        now = datetime.now()
+        now_m = now.hour * 60 + now.minute
+        now_x = track_x + (now_m - self.scale_start_m) / float(total_span) * track_w
+
+        # Start tick at arrival
+        start_x = track_x
+        cr.set_line_width(1.0)
+        cr.move_to(start_x, track_y - 5)
+        cr.line_to(start_x, track_y)
+        cr.set_source_rgb(0.55, 0.60, 0.68)
+        cr.stroke()
+
+        start_lbl = format_minutes_to_time(self.scale_start_m)
+        layout_s = PangoCairo.create_layout(cr)
+        layout_s.set_font_description(pango_desc)
+        layout_s.set_text(start_lbl, -1)
+        _, s_log_r = layout_s.get_pixel_extents()
+        cr.move_to(start_x - s_log_r.width / 2.0, 2)
+        cr.set_source_rgb(0.42, 0.48, 0.56)
+        PangoCairo.show_layout(cr, layout_s)
+
+        first_h = (self.scale_start_m + 59) // 60
+        last_h = self.scale_end_m // 60
+
+        for h in range(first_h, last_h + 1):
             m = h * 60
-            if m < self.scale_start_m or m > self.scale_end_m:
+            if m <= self.scale_start_m or m >= self.scale_end_m:
                 continue
             x = track_x + (m - self.scale_start_m) / float(total_span) * track_w
 
@@ -877,23 +884,28 @@ class JournalView(Gtk.Box):
             cr.stroke()
             cr.set_dash([])
 
-            # Hour label text
-            layout = PangoCairo.create_layout(cr)
-            layout.set_font_description(pango_desc)
-            layout.set_text(f"{h:02d}:00", -1)
-            ink, log_r = layout.get_pixel_extents()
-            cr.move_to(x - log_r.width / 2.0, 2)
-            cr.set_source_rgb(0.42, 0.48, 0.56)
-            PangoCairo.show_layout(cr, layout)
+            # Don't draw text label if it's too close to start_x or now_x
+            if abs(x - start_x) >= 32 and abs(x - now_x) >= 32:
+                layout = PangoCairo.create_layout(cr)
+                layout.set_font_description(pango_desc)
+                layout.set_text(f"{h:02d}:00", -1)
+                ink, log_r = layout.get_pixel_extents()
+                cr.move_to(x - log_r.width / 2.0, 2)
+                cr.set_source_rgb(0.42, 0.48, 0.56)
+                PangoCairo.show_layout(cr, layout)
 
             # Half-hour tick
             m_half = m + 30
             if self.scale_start_m <= m_half <= self.scale_end_m:
                 hx = track_x + (m_half - self.scale_start_m) / float(total_span) * track_w
-                cr.move_to(hx, track_y - 3)
-                cr.line_to(hx, track_y)
-                cr.set_source_rgba(0.65, 0.70, 0.76, 0.6)
-                cr.stroke()
+                if abs(hx - now_x) >= 15:
+                    cr.move_to(hx, track_y - 3)
+                    cr.line_to(hx, track_y)
+                    cr.set_source_rgba(0.65, 0.70, 0.76, 0.6)
+                    cr.stroke()
+
+        # 4. Activities / Tasks
+        is_compact = (getattr(self, "timeline_mode", "compact") == "compact")
 
         # 3. Untracked Gaps
         gap_pango = Pango.FontDescription("sans 8")
@@ -903,11 +915,11 @@ class JournalView(Gtk.Box):
             gw = max(2.0, gx2 - gx1)
 
             is_h = (self.hovered_gap_idx == idx)
-            draw_rounded(gx1 + 1, track_y + 2, gw - 2, track_h - 4, 5)
+            draw_rounded(gx1 + 1, track_y + 2, gw - 2, track_h - 4, 4 if is_compact else 5)
             if is_h:
                 cr.set_source_rgba(0.28, 0.33, 0.41, 0.12)
             else:
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.72)
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.95)
             cr.fill_preserve()
 
             cr.set_dash([3, 3])
@@ -915,12 +927,12 @@ class JournalView(Gtk.Box):
                 cr.set_source_rgba(0.28, 0.33, 0.41, 0.85)
                 cr.set_line_width(1.5)
             else:
-                cr.set_source_rgba(0.58, 0.64, 0.72, 0.60)
+                cr.set_source_rgba(0.68, 0.72, 0.78, 0.80)
                 cr.set_line_width(1.0)
             cr.stroke()
             cr.set_dash([])
 
-            if gw >= 44 and g["duration_m"] >= 15:
+            if not is_compact and gw >= 44 and g["duration_m"] >= 15:
                 gl = PangoCairo.create_layout(cr)
                 gl.set_font_description(gap_pango)
                 gl.set_text(f"+{g['duration_m']}m gap", -1)
@@ -929,8 +941,6 @@ class JournalView(Gtk.Box):
                 cr.set_source_rgb(0.55, 0.62, 0.70)
                 PangoCairo.show_layout(cr, gl)
 
-        # 4. Activities / Tasks
-        is_compact = (getattr(self, "timeline_mode", "compact") == "compact")
         title_pango = Pango.FontDescription("sans bold 8.5")
         sub_pango = Pango.FontDescription("sans 7.5")
 

@@ -326,6 +326,36 @@ button.nav-chevron-btn:hover, .nav-chevron-btn:hover {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
+/* White tag pill matching the timeline's white gap blocks */
+.tag-pill-gap {
+    background-color: #ffffff;
+    color: #475569;
+    border: 1px dashed #cbd5e1;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+}
+
+/* Single mode toggle button: >< and <> */
+button.mode-toggle-btn, .mode-toggle-btn {
+    min-width: 32px;
+    padding: 3px 8px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: -0.5px;
+    border-radius: 6px;
+    background-color: #ffffff;
+    border: 1px solid #dcdce0;
+    color: #475569;
+}
+
+button.mode-toggle-btn:hover, .mode-toggle-btn:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
 .folder-tabs-bar {
     background-color: #ebebef;
     border: 1px solid #dcdce0;
