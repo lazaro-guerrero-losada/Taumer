@@ -7,12 +7,16 @@ Engineered following Apple Human Interface Guidelines and UX laws.
 
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
+import cairo
+import math
 from datetime import datetime, timedelta
 import subprocess
 
 from models import JournalEntry, Task, DailyReconciliation
-from ui.dialogs import NewJournalEntryDialog, WorkGoalsDialog
+from ui.dialogs import NewJournalEntryDialog, WorkGoalsDialog, NewTaskDialog, EditWorkdayDialog
+from ui.calendar_view import format_minutes_to_time, parse_time_minutes
 
 class JournalView(Gtk.Box):
     def __init__(self, storage):
@@ -25,6 +29,24 @@ class JournalView(Gtk.Box):
         self.timer_start_dt = None
         self._cached_live_title = ""
         self._cached_live_proj = "General"
+
+        # Day Timeline state
+        self.top_card_mode = "reconciliation"
+        self.timeline_items = []
+        self.timeline_gaps = []
+        self.scale_start_m = 480  # 08:00
+        self.scale_end_m = 1080   # 18:00
+        self.is_dragging = False
+        self.drag_start_x = 0
+        self.drag_cur_x = 0
+        self.sel_start_m = None
+        self.sel_end_m = None
+        self.hover_x = -1
+        self.hover_y = -1
+        self.hover_m = None
+        self.hovered_item_id = None
+        self.hovered_gap_idx = None
+        self._timeline_popover = None
 
         self.set_margin_top(16)
         self.set_margin_bottom(16)
@@ -58,9 +80,16 @@ class JournalView(Gtk.Box):
 
         self.append(top_bar)
 
-        # 2. Daily Work Target & Time Balance Reconciliation Card
+        # 2. Top Banner Card Stack: Daily Work Target Reconciliation <-> Day Activity Timeline
+        self.top_cards_stack = Gtk.Stack()
+        self.top_cards_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.top_cards_stack.set_transition_duration(250)
+
         self.recon_card = self._build_reconciliation_card()
-        self.append(self.recon_card)
+        self.timeline_card = self._build_timeline_card()
+        self.top_cards_stack.add_named(self.recon_card, "reconciliation")
+        self.top_cards_stack.add_named(self.timeline_card, "timeline")
+        self.append(self.top_cards_stack)
 
         # 3. Left-aligned Folder-Tab Switcher (Apple segmented folder style)
         tab_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -137,6 +166,28 @@ class JournalView(Gtk.Box):
         top_h.append(title_vbox)
 
         top_h.append(Gtk.Box(hexpand=True))
+
+        # View switcher in Card 1 (Goals & Balance <-> Day Timeline)
+        switcher_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        switcher_box.set_valign(Gtk.Align.CENTER)
+
+        seg_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        seg_box.add_css_class("segmented-bar")
+
+        self.btn_recon_view_1 = Gtk.Button(label="◷ Goals & Balance")
+        self.btn_recon_view_1.add_css_class("segmented-btn")
+        self.btn_recon_view_1.add_css_class("active")
+        self.btn_recon_view_1.connect("clicked", lambda b: self._switch_top_card("reconciliation"))
+
+        self.btn_timeline_view_1 = Gtk.Button(label="▤ Day Timeline")
+        self.btn_timeline_view_1.add_css_class("segmented-btn")
+        self.btn_timeline_view_1.connect("clicked", lambda b: self._switch_top_card("timeline"))
+
+        seg_box.append(self.btn_recon_view_1)
+        seg_box.append(self.btn_timeline_view_1)
+        switcher_box.append(seg_box)
+
+        top_h.append(switcher_box)
 
         goals_btn = Gtk.Button(label="⚙ Set Goals")
         goals_btn.add_css_class("btn-secondary")
@@ -269,7 +320,859 @@ class JournalView(Gtk.Box):
         bottom_bar.append(break_box)
 
         card.append(bottom_bar)
+
+        # Swipe gesture to switch to Day Timeline
+        swipe1 = Gtk.GestureSwipe()
+        def on_swipe_recon(g, vx, vy):
+            if vx < -120:  # Fast swipe left -> Day Timeline
+                self._switch_top_card("timeline")
+        swipe1.connect("swipe", on_swipe_recon)
+        card.add_controller(swipe1)
+
         return card
+
+    def _switch_top_card(self, target: str):
+        if self.top_card_mode == target:
+            return
+        if target == "timeline":
+            self.top_cards_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT)
+            self.btn_recon_view_1.remove_css_class("active")
+            self.btn_timeline_view_1.add_css_class("active")
+            self.btn_recon_view_2.remove_css_class("active")
+            self.btn_timeline_view_2.add_css_class("active")
+            self.top_card_mode = target
+            self.top_cards_stack.set_visible_child_name("timeline")
+            self._refresh_timeline()
+        else:
+            self.top_cards_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
+            self.btn_recon_view_1.add_css_class("active")
+            self.btn_timeline_view_1.remove_css_class("active")
+            self.btn_recon_view_2.add_css_class("active")
+            self.btn_timeline_view_2.remove_css_class("active")
+            self.top_card_mode = target
+            self.top_cards_stack.set_visible_child_name("reconciliation")
+
+    def _build_timeline_card(self) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("card-box")
+
+        # Top line: Title + Subtitle + View Switcher + Workday Settings button
+        top_h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+        icon_lbl = Gtk.Label(label="▤")
+        icon_lbl.add_css_class("text-heading")
+        top_h.append(icon_lbl)
+
+        title_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        h_title = Gtk.Label(label="Day Activity Timeline & Gap Analyzer")
+        h_title.add_css_class("text-title")
+        h_title.set_halign(Gtk.Align.START)
+        h_sub = Gtk.Label(label="Visual time scale of your workday • Click & drag on any gap to log activity or create task")
+        h_sub.add_css_class("text-muted")
+        h_sub.set_halign(Gtk.Align.START)
+        title_vbox.append(h_title)
+        title_vbox.append(h_sub)
+        top_h.append(title_vbox)
+
+        top_h.append(Gtk.Box(hexpand=True))
+
+        # View switcher in Card 2
+        switcher_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        switcher_box.set_valign(Gtk.Align.CENTER)
+
+        seg_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        seg_box.add_css_class("segmented-bar")
+
+        self.btn_recon_view_2 = Gtk.Button(label="◷ Goals & Balance")
+        self.btn_recon_view_2.add_css_class("segmented-btn")
+        self.btn_recon_view_2.connect("clicked", lambda b: self._switch_top_card("reconciliation"))
+
+        self.btn_timeline_view_2 = Gtk.Button(label="▤ Day Timeline")
+        self.btn_timeline_view_2.add_css_class("segmented-btn")
+        self.btn_timeline_view_2.add_css_class("active")
+        self.btn_timeline_view_2.connect("clicked", lambda b: self._switch_top_card("timeline"))
+
+        seg_box.append(self.btn_recon_view_2)
+        seg_box.append(self.btn_timeline_view_2)
+        switcher_box.append(seg_box)
+
+        top_h.append(switcher_box)
+
+        self.timeline_workday_btn = Gtk.Button(label="⚙ Workday Hours")
+        self.timeline_workday_btn.add_css_class("btn-secondary")
+        self.timeline_workday_btn.connect("clicked", self._open_workday_dialog)
+        top_h.append(self.timeline_workday_btn)
+
+        card.append(top_h)
+
+        # Stat pills row
+        stats_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        stats_row.set_margin_top(1)
+
+        self.tl_stat_start = Gtk.Label(label="Start: --:--")
+        self.tl_stat_start.add_css_class("tag-pill-project")
+        stats_row.append(self.tl_stat_start)
+
+        self.tl_stat_now = Gtk.Label(label="Now: --:--")
+        self.tl_stat_now.add_css_class("tag-pill")
+        stats_row.append(self.tl_stat_now)
+
+        self.tl_stat_logged = Gtk.Label(label="Logged: 0h 0m")
+        self.tl_stat_logged.add_css_class("tag-pill-success")
+        stats_row.append(self.tl_stat_logged)
+
+        self.tl_stat_gaps = Gtk.Label(label="Gaps: 0m")
+        self.tl_stat_gaps.add_css_class("tag-pill-alert")
+        stats_row.append(self.tl_stat_gaps)
+
+        self.tl_stat_projected = Gtk.Label(label="Projected End: --:--")
+        self.tl_stat_projected.add_css_class("tag-pill")
+        stats_row.append(self.tl_stat_projected)
+
+        stats_row.append(Gtk.Box(hexpand=True))
+
+        lbl_drag_hint = Gtk.Label(label="✎ Drag to draw a task box in any gap")
+        lbl_drag_hint.add_css_class("text-muted")
+        lbl_drag_hint.set_opacity(0.85)
+        stats_row.append(lbl_drag_hint)
+
+        card.append(stats_row)
+
+        # Timeline DrawingArea
+        self.timeline_area = Gtk.DrawingArea()
+        self.timeline_area.set_content_height(74)
+        self.timeline_area.set_vexpand(False)
+        self.timeline_area.set_hexpand(True)
+        self.timeline_area.set_has_tooltip(True)
+        self.timeline_area.set_draw_func(self._on_draw_timeline)
+
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-begin", self._on_timeline_drag_begin)
+        drag.connect("drag-update", self._on_timeline_drag_update)
+        drag.connect("drag-end", self._on_timeline_drag_end)
+        self.timeline_area.add_controller(drag)
+
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_timeline_motion)
+        motion.connect("leave", self._on_timeline_leave)
+        self.timeline_area.add_controller(motion)
+
+        self.timeline_area.connect("query-tooltip", self._on_timeline_tooltip)
+
+        card.append(self.timeline_area)
+
+        # Bottom toolbar with quick action shortcuts and legend
+        bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        bottom_bar.set_margin_top(2)
+
+        btn_new_act = Gtk.Button(label="+ Log Activity")
+        btn_new_act.add_css_class("btn-secondary")
+        btn_new_act.set_tooltip_text("Open Activity Logger modal")
+        btn_new_act.connect("clicked", lambda b: self._open_new_activity_modal())
+        bottom_bar.append(btn_new_act)
+
+        btn_new_tsk = Gtk.Button(label="+ New Task")
+        btn_new_tsk.add_css_class("btn-secondary")
+        btn_new_tsk.set_tooltip_text("Schedule a new task for today")
+        btn_new_tsk.connect("clicked", lambda b: self._open_new_task_modal())
+        bottom_bar.append(btn_new_tsk)
+
+        bottom_bar.append(Gtk.Box(hexpand=True))
+
+        leg_work = Gtk.Label(label="■ Work Activity")
+        leg_work.add_css_class("tag-pill-success")
+        bottom_bar.append(leg_work)
+
+        leg_break = Gtk.Label(label="■ Break Time")
+        leg_break.add_css_class("tag-pill-high")
+        bottom_bar.append(leg_break)
+
+        leg_gap = Gtk.Label(label="╍╍ Untracked Gap")
+        leg_gap.add_css_class("tag-pill")
+        bottom_bar.append(leg_gap)
+
+        card.append(bottom_bar)
+
+        # Swipe gesture on header and bottom bar of Card 2
+        swipe2 = Gtk.GestureSwipe()
+        def on_swipe_tl(g, vx, vy):
+            if vx > 120:  # Fast swipe right -> back to reconciliation
+                self._switch_top_card("reconciliation")
+        swipe2.connect("swipe", on_swipe_tl)
+        top_h.add_controller(swipe2)
+
+        swipe3 = Gtk.GestureSwipe()
+        swipe3.connect("swipe", on_swipe_tl)
+        bottom_bar.add_controller(swipe3)
+
+        return card
+
+    def _open_workday_dialog(self, btn):
+        win = self.get_root()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        dlg = EditWorkdayDialog(win, self.storage, today_str, self.refresh)
+        dlg.present()
+
+    def _open_new_activity_modal(self, prefill_start=None, prefill_dur=30):
+        win = self.get_root()
+        now_str = datetime.now().strftime("%H:%M")
+        dlg = NewJournalEntryDialog(
+            win,
+            self.storage,
+            self.refresh,
+            prefill={
+                "start_time": prefill_start or now_str,
+                "duration_minutes": prefill_dur,
+                "title": "",
+                "project": "General"
+            }
+        )
+        dlg.present()
+
+    def _open_new_task_modal(self, prefill_start=None, prefill_dur=30):
+        win = self.get_root()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        now_str = datetime.now().strftime("%H:%M")
+        dlg = NewTaskDialog(
+            win,
+            self.storage,
+            self.refresh,
+            default_type="task",
+            prefill_date=today_str,
+            prefill_time=prefill_start or now_str,
+            prefill_duration=prefill_dur
+        )
+        dlg.present()
+
+    def _get_track_rect(self, width, height):
+        track_x = 14
+        track_y = 20
+        track_w = max(100, width - 28)
+        track_h = max(34, height - 26)
+        return track_x, track_y, track_w, track_h
+
+    def _minute_to_x(self, m: int) -> float:
+        w = self.timeline_area.get_width()
+        h = self.timeline_area.get_height()
+        track_x, track_y, track_w, track_h = self._get_track_rect(w, h)
+        total = max(1, self.scale_end_m - self.scale_start_m)
+        return track_x + (m - self.scale_start_m) / float(total) * track_w
+
+    def _x_to_minute(self, x: float) -> int:
+        w = self.timeline_area.get_width()
+        h = self.timeline_area.get_height()
+        track_x, track_y, track_w, track_h = self._get_track_rect(w, h)
+        total = max(1, self.scale_end_m - self.scale_start_m)
+        rel_x = max(0.0, min(1.0, (x - track_x) / float(track_w)))
+        m = self.scale_start_m + rel_x * total
+        snapped = int(round(m / 5.0) * 5)
+        return max(self.scale_start_m, min(self.scale_end_m, snapped))
+
+    def _refresh_timeline(self):
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        entries = self.storage.load_journal_entries_for_date(today_str)
+        recon = self.storage.get_daily_reconciliation(today_str)
+        break_project = self.storage.get_break_project_name().strip().lower()
+        break_names = {"break", "descanso"}
+        if break_project:
+            break_names.add(break_project)
+
+        # 1. Parse items
+        self.timeline_items = []
+        entry_starts = []
+        entry_ends = []
+        for e in entries:
+            sm = parse_time_minutes(e.start_time)
+            if sm is None:
+                continue
+            dur = e.duration_minutes or 30
+            em = sm + dur
+            entry_starts.append(sm)
+            entry_ends.append(em)
+            is_break = bool(e.project and e.project.strip().lower() in break_names)
+            self.timeline_items.append({
+                "id": e.id,
+                "title": e.title or "(Untitled)",
+                "project": e.project or "General",
+                "icon": e.icon or "●",
+                "start_m": sm,
+                "duration_m": dur,
+                "end_m": em,
+                "is_break": is_break,
+                "entry": e
+            })
+
+        self.timeline_items.sort(key=lambda it: it["start_m"])
+
+        # 2. Determine Scale Start Minute
+        arr_m = parse_time_minutes(recon.arrival_time) if recon.arrival_time else None
+        if arr_m is not None and entry_starts:
+            min_m = min(arr_m, min(entry_starts))
+        elif arr_m is not None:
+            min_m = arr_m
+        elif entry_starts:
+            min_m = min(entry_starts)
+        else:
+            min_m = 8 * 60  # 08:00 default
+
+        self.scale_start_m = max(0, (min_m // 60) * 60)
+
+        # 3. Determine Scale End Minute
+        now = datetime.now()
+        now_m = now.hour * 60 + now.minute
+        dep_m = parse_time_minutes(recon.departure_time) if recon.departure_time else None
+        exp_dep_str = recon.calculate_expected_departure_time(entries, break_project)
+        exp_dep_m = parse_time_minutes(exp_dep_str) if exp_dep_str else None
+
+        last_entry_m = max(entry_ends, default=self.scale_start_m)
+        target_span = self.scale_start_m + (recon.target_work_minutes or 420) + (recon.target_break_minutes or 30)
+
+        candidates = [now_m + 30, last_entry_m + 30, target_span]
+        if dep_m is not None:
+            candidates.append(dep_m)
+        if exp_dep_m is not None:
+            candidates.append(exp_dep_m + 30)
+
+        max_m = max(candidates)
+        self.scale_end_m = min(24 * 60, ((max_m + 59) // 60) * 60)
+        if self.scale_end_m - self.scale_start_m < 300:
+            self.scale_end_m = min(24 * 60, self.scale_start_m + 300)
+
+        # 4. Calculate Gaps
+        self.timeline_gaps = []
+        cur_m = arr_m if (arr_m is not None and arr_m >= self.scale_start_m) else self.scale_start_m
+        limit_m = min(now_m, self.scale_end_m)
+
+        for it in self.timeline_items:
+            if it["start_m"] > cur_m and cur_m < limit_m:
+                gap_end = min(it["start_m"], limit_m)
+                if gap_end - cur_m >= 5:
+                    self.timeline_gaps.append({
+                        "start_m": cur_m,
+                        "end_m": gap_end,
+                        "duration_m": gap_end - cur_m
+                    })
+            cur_m = max(cur_m, it["end_m"])
+
+        if cur_m < limit_m and limit_m - cur_m >= 5:
+            self.timeline_gaps.append({
+                "start_m": cur_m,
+                "end_m": limit_m,
+                "duration_m": limit_m - cur_m
+            })
+
+        # 5. Update Stat Badges
+        start_display = recon.arrival_time if recon.arrival_time else (format_minutes_to_time(min(entry_starts)) if entry_starts else "08:00")
+        self.tl_stat_start.set_text(f"Start: {start_display}")
+        self.tl_stat_now.set_text(f"Now: {now.strftime('%H:%M')}")
+
+        total_logged_m = sum(it["duration_m"] for it in self.timeline_items)
+        tl_h, tl_mins = total_logged_m // 60, total_logged_m % 60
+        self.tl_stat_logged.set_text(f"Logged: {tl_h}h {tl_mins:02d}m ({len(self.timeline_items)} activities)")
+
+        total_gap_m = sum(g["duration_m"] for g in self.timeline_gaps)
+        tg_h, tg_mins = total_gap_m // 60, total_gap_m % 60
+        gap_text = f"Gaps: {tg_h}h {tg_mins:02d}m" if tg_h > 0 else f"Gaps: {tg_mins}m"
+        self.tl_stat_gaps.set_text(f"{gap_text} ({len(self.timeline_gaps)} slots)")
+
+        if exp_dep_str:
+            self.tl_stat_projected.set_text(f"Projected End: {exp_dep_str}")
+        elif recon.departure_time:
+            self.tl_stat_projected.set_text(f"Departure: {recon.departure_time}")
+        else:
+            self.tl_stat_projected.set_text(f"Target: {recon.target_work_minutes // 60}h")
+
+        if recon.arrival_time:
+            arr_text = f"Workday: {recon.arrival_time}"
+            if recon.departure_time:
+                arr_text += f" – {recon.departure_time}"
+            self.timeline_workday_btn.set_label(f"⚙ {arr_text}")
+        else:
+            self.timeline_workday_btn.set_label("⚙ Workday Hours")
+
+        self.timeline_area.queue_draw()
+
+    def _on_draw_timeline(self, area, cr, width, height):
+        track_x, track_y, track_w, track_h = self._get_track_rect(width, height)
+        total_span = max(1, self.scale_end_m - self.scale_start_m)
+
+        def draw_rounded(x, y, w, h, r):
+            r = min(r, w / 2.0, h / 2.0)
+            cr.new_sub_path()
+            cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+            cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+            cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+            cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+            cr.close_path()
+
+        # 1. Base Track Groove
+        draw_rounded(track_x, track_y, track_w, track_h, 7)
+        cr.set_source_rgb(0.965, 0.965, 0.972)
+        cr.fill_preserve()
+        cr.set_source_rgb(0.886, 0.886, 0.906)
+        cr.set_line_width(1.0)
+        cr.stroke()
+
+        # 2. Hour Ticks and Guidelines
+        pango_desc = Pango.FontDescription("sans 8.5")
+
+        for h in range(self.scale_start_m // 60, (self.scale_end_m // 60) + 1):
+            m = h * 60
+            if m < self.scale_start_m or m > self.scale_end_m:
+                continue
+            x = track_x + (m - self.scale_start_m) / float(total_span) * track_w
+
+            # Top tick
+            cr.set_line_width(1.0)
+            cr.move_to(x, track_y - 5)
+            cr.line_to(x, track_y)
+            cr.set_source_rgb(0.65, 0.70, 0.76)
+            cr.stroke()
+
+            # Subtle dashed vertical guideline inside track
+            cr.set_dash([2, 4])
+            cr.set_source_rgba(0.0, 0.0, 0.0, 0.05)
+            cr.move_to(x, track_y)
+            cr.line_to(x, track_y + track_h)
+            cr.stroke()
+            cr.set_dash([])
+
+            # Hour label text
+            layout = PangoCairo.create_layout(cr)
+            layout.set_font_description(pango_desc)
+            layout.set_text(f"{h:02d}:00", -1)
+            ink, log_r = layout.get_pixel_extents()
+            cr.move_to(x - log_r.width / 2.0, 2)
+            cr.set_source_rgb(0.42, 0.48, 0.56)
+            PangoCairo.show_layout(cr, layout)
+
+            # Half-hour tick
+            m_half = m + 30
+            if self.scale_start_m <= m_half <= self.scale_end_m:
+                hx = track_x + (m_half - self.scale_start_m) / float(total_span) * track_w
+                cr.move_to(hx, track_y - 3)
+                cr.line_to(hx, track_y)
+                cr.set_source_rgba(0.65, 0.70, 0.76, 0.6)
+                cr.stroke()
+
+        # 3. Untracked Gaps
+        gap_pango = Pango.FontDescription("sans 8")
+        for idx, g in enumerate(self.timeline_gaps):
+            gx1 = track_x + (g["start_m"] - self.scale_start_m) / float(total_span) * track_w
+            gx2 = track_x + (g["end_m"] - self.scale_start_m) / float(total_span) * track_w
+            gw = max(2.0, gx2 - gx1)
+
+            is_h = (self.hovered_gap_idx == idx)
+            draw_rounded(gx1 + 1, track_y + 2, gw - 2, track_h - 4, 5)
+            if is_h:
+                cr.set_source_rgba(0.28, 0.33, 0.41, 0.12)
+            else:
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.72)
+            cr.fill_preserve()
+
+            cr.set_dash([3, 3])
+            if is_h:
+                cr.set_source_rgba(0.28, 0.33, 0.41, 0.85)
+                cr.set_line_width(1.5)
+            else:
+                cr.set_source_rgba(0.58, 0.64, 0.72, 0.60)
+                cr.set_line_width(1.0)
+            cr.stroke()
+            cr.set_dash([])
+
+            if gw >= 44 and g["duration_m"] >= 15:
+                gl = PangoCairo.create_layout(cr)
+                gl.set_font_description(gap_pango)
+                gl.set_text(f"+{g['duration_m']}m gap", -1)
+                ink, log_r = gl.get_pixel_extents()
+                cr.move_to(gx1 + (gw - log_r.width) / 2.0, track_y + (track_h - log_r.height) / 2.0)
+                cr.set_source_rgb(0.55, 0.62, 0.70)
+                PangoCairo.show_layout(cr, gl)
+
+        # 4. Activities / Tasks
+        title_pango = Pango.FontDescription("sans bold 8.5")
+        sub_pango = Pango.FontDescription("sans 7.5")
+
+        for it in self.timeline_items:
+            ax1 = track_x + (it["start_m"] - self.scale_start_m) / float(total_span) * track_w
+            ax2 = track_x + (it["end_m"] - self.scale_start_m) / float(total_span) * track_w
+            aw = max(18.0, ax2 - ax1)
+
+            is_h = (self.hovered_item_id == it["id"])
+            draw_rounded(ax1 + 1, track_y + 2, aw - 2, track_h - 4, 5)
+
+            if it["is_break"]:
+                if is_h:
+                    cr.set_source_rgb(0.95, 0.90, 0.92)
+                else:
+                    cr.set_source_rgb(0.97, 0.94, 0.95)
+                cr.fill_preserve()
+                if is_h:
+                    cr.set_source_rgb(0.51, 0.40, 0.45)
+                    cr.set_line_width(1.5)
+                else:
+                    cr.set_source_rgb(0.90, 0.82, 0.85)
+                    cr.set_line_width(1.0)
+                cr.stroke()
+                text_r, text_g, text_b = 0.51, 0.40, 0.45
+            else:
+                if is_h:
+                    cr.set_source_rgb(0.91, 0.94, 0.90)
+                else:
+                    cr.set_source_rgb(0.94, 0.96, 0.94)
+                cr.fill_preserve()
+                if is_h:
+                    cr.set_source_rgb(0.12, 0.16, 0.23)
+                    cr.set_line_width(1.5)
+                else:
+                    cr.set_source_rgb(0.83, 0.87, 0.83)
+                    cr.set_line_width(1.0)
+                cr.stroke()
+                text_r, text_g, text_b = 0.12, 0.16, 0.23
+
+            cr.save()
+            draw_rounded(ax1 + 3, track_y + 3, max(1.0, aw - 6), max(1.0, track_h - 6), 3)
+            cr.clip()
+
+            t_layout = PangoCairo.create_layout(cr)
+            t_layout.set_font_description(title_pango)
+            t_layout.set_text(f"{it['icon']} {it['title']}", -1)
+            cr.move_to(ax1 + 5, track_y + 4)
+            cr.set_source_rgb(text_r, text_g, text_b)
+            PangoCairo.show_layout(cr, t_layout)
+
+            if aw >= 56:
+                s_layout = PangoCairo.create_layout(cr)
+                s_layout.set_font_description(sub_pango)
+                time_sub = f"{format_minutes_to_time(it['start_m'])}–{format_minutes_to_time(it['end_m'])} ({it['duration_m']}m)"
+                s_layout.set_text(time_sub, -1)
+                cr.move_to(ax1 + 5, track_y + 19)
+                cr.set_source_rgba(text_r, text_g, text_b, 0.75)
+                PangoCairo.show_layout(cr, s_layout)
+
+            cr.restore()
+
+        # 5. Current Time Line (NOW)
+        now = datetime.now()
+        now_m = now.hour * 60 + now.minute
+        if self.scale_start_m <= now_m <= self.scale_end_m:
+            nx = track_x + (now_m - self.scale_start_m) / float(total_span) * track_w
+            cr.set_source_rgb(0.88, 0.11, 0.28)
+            cr.set_line_width(1.5)
+            cr.move_to(nx, track_y - 6)
+            cr.line_to(nx, track_y + track_h + 2)
+            cr.stroke()
+
+            draw_rounded(nx - 14, track_y - 14, 28, 12, 6)
+            cr.set_source_rgb(0.88, 0.11, 0.28)
+            cr.fill()
+
+            now_layout = PangoCairo.create_layout(cr)
+            now_desc = Pango.FontDescription("sans bold 7")
+            now_layout.set_font_description(now_desc)
+            now_layout.set_text("NOW", -1)
+            ink, log_r = now_layout.get_pixel_extents()
+            cr.move_to(nx - log_r.width / 2.0, track_y - 13)
+            cr.set_source_rgb(1.0, 1.0, 1.0)
+            PangoCairo.show_layout(cr, now_layout)
+
+        # 6. Live Selection Rectangle (while dragging)
+        if self.is_dragging and self.sel_start_m is not None and self.sel_end_m is not None:
+            sx1 = self._minute_to_x(self.sel_start_m)
+            sx2 = self._minute_to_x(self.sel_end_m)
+            rx = min(sx1, sx2)
+            rw = max(4.0, abs(sx2 - sx1))
+
+            draw_rounded(rx, track_y, rw, track_h, 6)
+            cr.set_source_rgba(0.32, 0.36, 0.31, 0.22)
+            cr.fill_preserve()
+
+            cr.set_dash([4, 2])
+            cr.set_source_rgba(0.18, 0.22, 0.17, 0.95)
+            cr.set_line_width(1.5)
+            cr.stroke()
+            cr.set_dash([])
+
+            dur_mins = self.sel_end_m - self.sel_start_m
+            b_text = f"{format_minutes_to_time(self.sel_start_m)} – {format_minutes_to_time(self.sel_end_m)} ({dur_mins}m)"
+            b_layout = PangoCairo.create_layout(cr)
+            b_desc = Pango.FontDescription("sans bold 8.5")
+            b_layout.set_font_description(b_desc)
+            b_layout.set_text(b_text, -1)
+            ink, log_r = b_layout.get_pixel_extents()
+
+            bw = log_r.width + 14
+            bh = log_r.height + 6
+            bx = max(track_x, min(track_x + track_w - bw, rx + (rw - bw) / 2.0))
+            by = max(1.0, track_y - bh - 3)
+
+            draw_rounded(bx, by, bw, bh, 5)
+            cr.set_source_rgb(0.12, 0.16, 0.23)
+            cr.fill()
+
+            cr.move_to(bx + 7, by + 3)
+            cr.set_source_rgb(1.0, 1.0, 1.0)
+            PangoCairo.show_layout(cr, b_layout)
+
+    def _on_timeline_motion(self, controller, x, y):
+        self.hover_x = x
+        self.hover_y = y
+        old_item = self.hovered_item_id
+        old_gap = self.hovered_gap_idx
+
+        track_x, track_y, track_w, track_h = self._get_track_rect(
+            self.timeline_area.get_width(), self.timeline_area.get_height()
+        )
+        self.hovered_item_id = None
+        self.hovered_gap_idx = None
+
+        if track_y <= y <= track_y + track_h and track_x <= x <= track_x + track_w:
+            m = self._x_to_minute(x)
+            self.hover_m = m
+            for it in self.timeline_items:
+                if it["start_m"] <= m <= it["end_m"]:
+                    self.hovered_item_id = it["id"]
+                    break
+            if not self.hovered_item_id:
+                for idx, g in enumerate(self.timeline_gaps):
+                    if g["start_m"] <= m <= g["end_m"]:
+                        self.hovered_gap_idx = idx
+                        break
+        else:
+            self.hover_m = None
+
+        if self.hovered_item_id != old_item or self.hovered_gap_idx != old_gap or self.is_dragging:
+            self.timeline_area.queue_draw()
+
+    def _on_timeline_leave(self, controller):
+        self.hover_x = -1
+        self.hover_y = -1
+        self.hover_m = None
+        self.hovered_item_id = None
+        self.hovered_gap_idx = None
+        self.timeline_area.queue_draw()
+
+    def _on_timeline_tooltip(self, widget, x, y, keyboard_mode, tooltip):
+        if self.is_dragging:
+            return False
+        track_x, track_y, track_w, track_h = self._get_track_rect(
+            self.timeline_area.get_width(), self.timeline_area.get_height()
+        )
+        if not (track_y <= y <= track_y + track_h and track_x <= x <= track_x + track_w):
+            return False
+
+        m = self._x_to_minute(x)
+        for it in self.timeline_items:
+            if it["start_m"] <= m <= it["end_m"]:
+                kind = "Break Activity" if it["is_break"] else "Work Activity"
+                time_range = f"{format_minutes_to_time(it['start_m'])} – {format_minutes_to_time(it['end_m'])}"
+                txt = f"{it['icon']} {it['title']}\n{kind} • {it['project']} • {it['duration_m']}m\nTime: {time_range}\n(Click to view / edit entry)"
+                tooltip.set_text(txt)
+                return True
+
+        for g in self.timeline_gaps:
+            if g["start_m"] <= m <= g["end_m"]:
+                time_range = f"{format_minutes_to_time(g['start_m'])} – {format_minutes_to_time(g['end_m'])}"
+                txt = f"⏱ Untracked Gap: {g['duration_m']} min\nTime: {time_range}\n\n👉 Click or drag across this gap to log what you did or create a task"
+                tooltip.set_text(txt)
+                return True
+
+        now = datetime.now()
+        now_m = now.hour * 60 + now.minute
+        if m > now_m:
+            txt = f"Upcoming workday time: {format_minutes_to_time(m)}\n👉 Click & drag to schedule a task or plan this time"
+            tooltip.set_text(txt)
+            return True
+
+        return False
+
+    def _on_timeline_drag_begin(self, gesture, start_x, start_y):
+        track_x, track_y, track_w, track_h = self._get_track_rect(
+            self.timeline_area.get_width(), self.timeline_area.get_height()
+        )
+        if not (track_y - 8 <= start_y <= track_y + track_h + 8 and track_x <= start_x <= track_x + track_w):
+            self.is_dragging = False
+            return
+        self.is_dragging = True
+        self.drag_start_x = start_x
+        self.drag_cur_x = start_x
+        m = self._x_to_minute(start_x)
+        self.sel_start_m = m
+        self.sel_end_m = m
+        self.timeline_area.queue_draw()
+
+    def _on_timeline_drag_update(self, gesture, offset_x, offset_y):
+        if not self.is_dragging:
+            return
+        cur_x = self.drag_start_x + offset_x
+        self.drag_cur_x = cur_x
+        m1 = self._x_to_minute(self.drag_start_x)
+        m2 = self._x_to_minute(cur_x)
+        self.sel_start_m = min(m1, m2)
+        self.sel_end_m = max(m1, m2)
+        self.timeline_area.queue_draw()
+
+    def _on_timeline_drag_end(self, gesture, offset_x, offset_y):
+        if not self.is_dragging:
+            return
+        self.is_dragging = False
+
+        start_m = self.sel_start_m if self.sel_start_m is not None else self._x_to_minute(self.drag_start_x)
+        end_m = self.sel_end_m if self.sel_end_m is not None else start_m
+        dur = end_m - start_m
+
+        if dur >= 5:
+            self._show_timeline_creation_popover(start_m, end_m)
+        else:
+            clicked_m = start_m
+            clicked_item = next((it for it in self.timeline_items if it["start_m"] <= clicked_m <= it["end_m"]), None)
+            if clicked_item:
+                win = self.get_root()
+                dlg = NewJournalEntryDialog(win, self.storage, self.refresh, edit_entry=clicked_item["entry"])
+                dlg.present()
+                self.sel_start_m = None
+                self.sel_end_m = None
+                self.timeline_area.queue_draw()
+                return
+
+            clicked_gap = next((g for g in self.timeline_gaps if g["start_m"] <= clicked_m <= g["end_m"]), None)
+            if clicked_gap:
+                self.sel_start_m = clicked_gap["start_m"]
+                self.sel_end_m = clicked_gap["end_m"]
+                self._show_timeline_creation_popover(clicked_gap["start_m"], clicked_gap["end_m"])
+            else:
+                self.sel_start_m = clicked_m
+                self.sel_end_m = min(self.scale_end_m, clicked_m + 30)
+                self._show_timeline_creation_popover(self.sel_start_m, self.sel_end_m)
+
+        self.timeline_area.queue_draw()
+
+    def _show_timeline_creation_popover(self, start_m: int, end_m: int):
+        dur_m = max(5, end_m - start_m)
+        start_str = format_minutes_to_time(start_m)
+        end_str = format_minutes_to_time(end_m)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        if hasattr(self, "_timeline_popover") and self._timeline_popover:
+            self._timeline_popover.popdown()
+
+        popover = Gtk.Popover()
+        popover.add_css_class("calendar-popover")
+        popover.set_parent(self.timeline_area)
+        self._timeline_popover = popover
+
+        x1 = self._minute_to_x(start_m)
+        x2 = self._minute_to_x(end_m)
+        track_x, track_y, track_w, track_h = self._get_track_rect(
+            self.timeline_area.get_width(), self.timeline_area.get_height()
+        )
+        rect = Gdk.Rectangle()
+        rect.x = int(min(x1, x2))
+        rect.y = int(track_y)
+        rect.width = int(max(20.0, abs(x2 - x1)))
+        rect.height = int(track_h)
+        popover.set_pointing_to(rect)
+
+        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        pop_box.set_margin_top(10)
+        pop_box.set_margin_bottom(10)
+        pop_box.set_margin_start(12)
+        pop_box.set_margin_end(12)
+
+        # Header with time slot info
+        h_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_title = Gtk.Label(label="Selected Time Slot:")
+        lbl_title.add_css_class("text-muted")
+        h_box.append(lbl_title)
+
+        lbl_slot = Gtk.Label(label=f"{start_str} – {end_str} ({dur_m}m)")
+        lbl_slot.add_css_class("tag-pill-project")
+        h_box.append(lbl_slot)
+        pop_box.append(h_box)
+
+        # Option 1: Log Completed Activity in Journal
+        btn_log = Gtk.Button()
+        btn_log.add_css_class("card-box")
+        btn_log_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        l1 = Gtk.Label(label="◷ Log Completed Activity")
+        l1.add_css_class("text-title")
+        l1.set_halign(Gtk.Align.START)
+        l2 = Gtk.Label(label="Record what you did in this gap into today's Activity Journal")
+        l2.add_css_class("text-muted")
+        l2.set_halign(Gtk.Align.START)
+        btn_log_box.append(l1)
+        btn_log_box.append(l2)
+        btn_log.set_child(btn_log_box)
+
+        def on_log_clicked(b):
+            popover.popdown()
+            win = self.get_root()
+            dlg = NewJournalEntryDialog(
+                win,
+                self.storage,
+                self.refresh,
+                prefill={
+                    "start_time": start_str,
+                    "duration_minutes": dur_m,
+                    "title": "",
+                    "project": "General"
+                }
+            )
+            dlg.present()
+
+        btn_log.connect("clicked", on_log_clicked)
+        pop_box.append(btn_log)
+
+        # Option 2: Create Scheduled Task
+        btn_task = Gtk.Button()
+        btn_task.add_css_class("card-box")
+        btn_task_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        t1 = Gtk.Label(label="⊞ Create Scheduled Task")
+        t1.add_css_class("text-title")
+        t1.set_halign(Gtk.Align.START)
+        t2 = Gtk.Label(label="Schedule a task for this time slot")
+        t2.add_css_class("text-muted")
+        t2.set_halign(Gtk.Align.START)
+        btn_task_box.append(t1)
+        btn_task_box.append(t2)
+        btn_task.set_child(btn_task_box)
+
+        def on_task_clicked(b):
+            popover.popdown()
+            win = self.get_root()
+            dlg = NewTaskDialog(
+                win,
+                self.storage,
+                self.refresh,
+                default_type="task",
+                prefill_date=today_str,
+                prefill_time=start_str,
+                prefill_duration=dur_m
+            )
+            dlg.present()
+
+        btn_task.connect("clicked", on_task_clicked)
+        pop_box.append(btn_task)
+
+        # Option 3: Quick prefill into form below
+        btn_fill = Gtk.Button(label=f"⚡ Fill into 'Log Activity' form below ({start_str}, {dur_m}m)")
+        btn_fill.add_css_class("btn-secondary")
+        def on_fill_clicked(b):
+            popover.popdown()
+            self._switch_entry_mode("retro")
+            self.retro_dur_entry.set_text(str(dur_m))
+            self.retro_title_entry.grab_focus()
+        btn_fill.connect("clicked", on_fill_clicked)
+        pop_box.append(btn_fill)
+
+        def on_pop_closed(p):
+            self.sel_start_m = None
+            self.sel_end_m = None
+            self.timeline_area.queue_draw()
+
+        popover.connect("closed", on_pop_closed)
+        popover.set_child(pop_box)
+        popover.popup()
 
     def _create_recon_stat_column(self, title: str, main_val: str, sub_val: str) -> Gtk.Widget:
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -822,6 +1725,9 @@ class JournalView(Gtk.Box):
         self.pending_tasks = [t for t in self.storage.get_tasks() if t.status != "done" and getattr(t, "item_type", "task") != "event"]
         task_names = ["Link task: (None)"] + [f"Complete: {t.title[:30]}..." if len(t.title) > 30 else f"Complete: {t.title}" for t in self.pending_tasks]
         self.retro_task_dropdown.set_model(Gtk.StringList.new(task_names))
+
+        # Refresh Day Timeline view
+        self._refresh_timeline()
 
         # Clear feed
         while child := self.feed_box.get_first_child():

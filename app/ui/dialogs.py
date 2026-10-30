@@ -110,7 +110,7 @@ def parse_duration_input(text: str | None, default: int = 30) -> int:
     return default
 
 class NewTaskDialog(Gtk.Window):
-    def __init__(self, parent, storage, on_saved_cb, edit_task: Task = None, default_type: str = "task", prefill_date: str = None, prefill_time: str = None):
+    def __init__(self, parent, storage, on_saved_cb, edit_task: Task = None, default_type: str = "task", prefill_date: str = None, prefill_time: str = None, prefill_duration: int = None):
         super().__init__(transient_for=parent, modal=True)
         self.storage = storage
         self.on_saved_cb = on_saved_cb
@@ -118,6 +118,7 @@ class NewTaskDialog(Gtk.Window):
         self.default_type = default_type
         self.prefill_date = prefill_date
         self.prefill_time = prefill_time
+        self.prefill_duration = prefill_duration
 
         # Check if editing existing task in storage
         self.is_editing_existing = False
@@ -322,6 +323,8 @@ class NewTaskDialog(Gtk.Window):
         self.dur_entry = Gtk.Entry()
         if self.edit_task:
             init_open = getattr(self.edit_task, "is_open_ended", False) or (self.edit_task.scheduled_duration is None)
+        elif self.prefill_duration:
+            init_open = False
         else:
             init_open = True
         
@@ -330,7 +333,7 @@ class NewTaskDialog(Gtk.Window):
             self.dur_entry.set_text("")
             self.dur_entry.set_placeholder_text("Undefined / Open-ended")
         else:
-            default_dur_val = self.edit_task.scheduled_duration or self.edit_task.estimated_minutes
+            default_dur_val = self.prefill_duration or (self.edit_task.scheduled_duration or self.edit_task.estimated_minutes if self.edit_task else 30)
             self.dur_entry.set_text(str(default_dur_val) if default_dur_val else "30")
             self.dur_entry.set_placeholder_text("e.g. 60" if self.item_type == "event" else "e.g. 30 (visual slot)")
         
