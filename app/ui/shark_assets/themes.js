@@ -1460,24 +1460,24 @@
       this.cols = 0;
       this.rows = 0;
       this.time = 0;
-      this.genInterval = 0.48; // Calm, relaxing slow-motion evolution cadence
+      this.genInterval = 0.44; // Calm, relaxing slow-motion evolution cadence
       this.generation = 0;
       this.directorTimer = 0;
 
       // ── PROGRESSIVE POPULATION EBB & FLOW (EXPANSION & CONTRACTION) ──
-      // Rather than a sudden crash, the ecosystem naturally breathes:
-      // In "grow" phase: normal Conway reproduction (B3/S23) allows colonies to expand.
-      // Once density reaches max threshold (~8.5%), the climate smoothly inverts to "shrink":
-      // resource scarcity makes survival tougher (cells require exact 2 neighbors to survive,
-      // and births require 3 parents with gentle probability), so colonies slowly recede
-      // and dissolve into open space until the minimum density threshold (~1.8%) is reached,
-      // at which point the cycle smoothly inverts back to "grow" in a new area!
+      // In Conway's Game of Life, life propagates and moves across space through oscillators,
+      // moving gliders and spaceships (LWSS/MWSS/HWSS), and dynamic methuselah reactions.
+      // When density reaches max threshold (~6.8%), the environment gently inverts to "shrink":
+      // births become slightly harder (probabilistic) and over-dense clusters thin out,
+      // creating a very slow, calm, relaxing contraction until reaching min threshold (~1.6%).
+      // In both phases, gliders and moving spaceships continuously traverse the open space,
+      // and static frozen blocks slowly dissolve or re-awaken into gliders so the screen never stagnates!
       this.ecoPhase = "grow"; // "grow" or "shrink"
-      this.ecoTransition = 1.0; // [0.0 = full shrink mode, 1.0 = full grow mode]
-      this.maxDensityThreshold = 0.085; // Upper ceiling (~8.5% of screen covered)
-      this.minDensityThreshold = 0.018; // Lower floor (~1.8% of screen covered)
+      this.maxDensityThreshold = 0.068; // Lower ceiling for spacious airy canvas (~6.8%)
+      this.minDensityThreshold = 0.016; // Lower floor (~1.6%)
 
       this.alive = new Uint8Array(0);
+      this.nextAlive = new Uint8Array(0);
       this.age = new Uint16Array(0);
       this.strain = new Uint8Array(0);
       this.fade = new Float32Array(0);
@@ -1512,6 +1512,7 @@
         this.rows = newRows;
         const n = newCols * newRows;
         this.alive = new Uint8Array(n);
+        this.nextAlive = new Uint8Array(n);
         this.age = new Uint16Array(n);
         this.strain = new Uint8Array(n);
         this.fade = new Float32Array(n);
@@ -1600,23 +1601,24 @@
       if (!cols || !rows) return;
       if (fullReset) {
         this.alive.fill(0);
+        this.nextAlive.fill(0);
         this.age.fill(0);
         this.fade.fill(0);
         if (this.cellGrowth) this.cellGrowth.fill(0);
       }
 
-      // Airy, spacious initial population: 3 focal constellations leaving open, negative breathing space
-      // 1. Top-left quadrant: Kok Galaxy oscillator (compact, beautiful spinning star)
-      this.stampPattern("koks_galaxy", Math.round(cols * 0.28), Math.round(rows * 0.28), 2, false, false, false);
-      this.stampPattern("glider", Math.round(cols * 0.38), Math.round(rows * 0.20), 0, false, false, false);
+      // Airy, open initial ecosystem: dynamic moving gliders and spaceships + oscillators
+      // leaving spacious negative room across the canvas
+      // 1. Moving gliders traveling across quadrants
+      this.stampPattern("glider", Math.round(cols * 0.22), Math.round(rows * 0.24), 0, false, false, false);
+      this.stampPattern("glider", Math.round(cols * 0.78), Math.round(rows * 0.72), 1, true, true, false);
+      this.stampPattern("glider", Math.round(cols * 0.76), Math.round(rows * 0.22), 2, true, false, false);
 
-      // 2. Lower-right quadrant: Pulsar oscillator
-      this.stampPattern("pulsar", Math.round(cols * 0.72), Math.round(rows * 0.68), 1, false, false, false);
-      this.stampPattern("glider", Math.round(cols * 0.84), Math.round(rows * 0.80), 3, true, true, false);
+      // 2. Moving lightweight spaceships (LWSS) traveling horizontally
+      this.stampPattern("lwss", Math.round(cols * 0.18), Math.round(rows * 0.65), 3, false, false, false);
 
-      // 3. Evolving methuselah in upper-right quadrant
-      this.stampPattern("r_pentomino", Math.round(cols * 0.70), Math.round(rows * 0.28), 0, false, true, false);
-      this.stampPattern("lwss", Math.round(cols * 0.16), Math.round(rows * 0.72), 3, false, false, false);
+      // 3. Evolving methuselah that naturally produces gliders and active motion
+      this.stampPattern("r_pentomino", Math.round(cols * 0.50), Math.round(rows * 0.38), 0, false, false, false);
 
       // Subtle background coordinate markers for ambient depth
       this.ambientNodes = [];
@@ -1650,7 +1652,7 @@
       let bestR = Math.floor(rows * 0.5);
       let bestScore = Infinity;
 
-      for (let attempt = 0; attempt < 10; attempt++) {
+      for (let attempt = 0; attempt < 12; attempt++) {
         const c0 = Math.floor(rand(cols * 0.12, cols * 0.88));
         const r0 = Math.floor(rand(rows * 0.14, rows * 0.86));
         let count = 0;
@@ -1677,35 +1679,36 @@
       const mode = burstKind >= 0 ? burstKind % 5 : (this.clickCycle++) % 5;
 
       // Clear a small breathing pocket so the new population can flourish
-      this.clearDisk(c0, r0, 7);
+      this.clearDisk(c0, r0, 6);
 
       if (mode === 0) {
-        // R-Pentomino core + 4 diagonal outward gliders
-        this.stampPattern("r_pentomino", c0, r0, sId, Math.random() < 0.5, Math.random() < 0.5);
-        this.stampPattern("glider", c0 + 5, r0 + 5, (sId + 1) & 3, false, false);
-        this.stampPattern("glider", c0 - 5, r0 + 5, (sId + 1) & 3, true, false);
-        this.stampPattern("glider", c0 + 5, r0 - 5, (sId + 2) & 3, false, true);
-        this.stampPattern("glider", c0 - 5, r0 - 5, (sId + 2) & 3, true, true);
+        // Dynamic Glider Fleet (3 gliders traveling in formation)
+        this.stampPattern("glider", c0, r0, sId, false, false);
+        this.stampPattern("glider", c0 - 5, r0 + 4, (sId + 1) & 3, false, false);
+        this.stampPattern("glider", c0 + 5, r0 - 4, (sId + 2) & 3, true, true);
       } else if (mode === 1) {
-        // Kok's Galaxy spiral oscillator + Twin LWSS spaceships
-        this.stampPattern("koks_galaxy", c0, r0, sId);
-        this.stampPattern("lwss", c0 + 9, r0 - 3, (sId + 1) & 3, false, false);
-        this.stampPattern("lwss", c0 - 9, r0 + 3, (sId + 2) & 3, true, true);
+        // Lightweight spaceship (LWSS) moving across screen + Escort Glider
+        this.stampPattern("lwss", c0, r0, sId, Math.random() < 0.5, false);
+        this.stampPattern("glider", c0 + 7, r0 + 5, (sId + 1) & 3, false, false);
       } else if (mode === 2) {
-        // Acorn Methuselah + Diehard + Gliders
-        this.stampPattern("acorn", c0, r0, sId, Math.random() < 0.5, Math.random() < 0.5);
-        this.stampPattern("diehard", c0, r0 - 6, (sId + 1) & 3, Math.random() < 0.5, false);
-        this.stampPattern("glider", c0 + 6, r0 + 4, (sId + 3) & 3, false, false);
+        // R-Pentomino core (famous dynamic methuselah that naturally produces gliders)
+        this.stampPattern("r_pentomino", c0, r0, sId, Math.random() < 0.5, Math.random() < 0.5);
       } else if (mode === 3) {
-        // Classic 13x13 Pulsar + Spaceship escort
-        this.stampPattern("pulsar", c0, r0, sId);
-        this.stampPattern("mwss", c0, r0 + 10, (sId + 2) & 3, Math.random() < 0.5, false);
+        // Medium spaceship (MWSS) + Cross Glider
+        this.stampPattern("mwss", c0, r0, sId, Math.random() < 0.5, false);
+        this.stampPattern("glider", c0 - 6, r0 - 5, (sId + 2) & 3, false, true);
       } else {
-        // Pentadecathlon + Twin R-pentominoes
-        this.stampPattern("pentadecathlon", c0, r0, sId, false, false, Math.random() < 0.4);
-        this.stampPattern("r_pentomino", c0 - 8, r0, (sId + 1) & 3, true, false);
-        this.stampPattern("r_pentomino", c0 + 8, r0, (sId + 3) & 3, false, true);
+        // Kok's Galaxy oscillator + Outward Glider
+        this.stampPattern("koks_galaxy", c0, r0, sId);
+        this.stampPattern("glider", c0 + 8, r0 + 7, (sId + 3) & 3, false, false);
       }
+
+      this.updateNeighborCounts();
+      const px = (c0 + 0.5) * cw;
+      const py = (r0 + 0.5) * ch;
+      this.events.push({ kind: "divide", x: px, y: py });
+      this.events.push({ kind: "splash", x: px, y: py });
+    }
 
       this.updateNeighborCounts();
       const px = (c0 + 0.5) * cw;
@@ -1739,24 +1742,30 @@
       }
     }
 
-    // Asynchronous fluid cellular evolution: each cell evolves at a different staggered time
-    // but at the exact same calm speed, with 60 FPS continuous growth and decay!
+    // Conway's Game of Life laws:
+    // Cells evolve according to their 8 neighbors:
+    // - Underpopulation: < 2 neighbors dies
+    // - Survival: 2 or 3 neighbors lives
+    // - Overpopulation: > 3 neighbors dies
+    // - Reproduction: exactly 3 neighbors creates a new living cell
+    // Gliders and spaceships travel across empty space.
+    // In shrink phase, parameters modulate gently and slowly to create a relaxed, gradual contraction.
     step(dt) {
       this.time += dt;
-      const { cols, rows, alive, age, strain, fade, cellGrowth, cellTimer, neighbors, genInterval } = this;
+      const { cols, rows, alive, nextAlive, age, strain, fade, cellGrowth, cellTimer, neighbors, genInterval } = this;
       if (!cols || !rows) return;
 
       const n = cols * rows;
       const growSpeed = 1 / (genInterval * 0.48);
       const fadeSpeed = 1 / (genInterval * 0.75);
-      const ghostDecay = Math.exp(-dt * 1.65);
+      const ghostDecay = Math.exp(-dt * 1.5);
 
       let liveTotal = 0;
       let births = 0;
       let activeMoving = 0;
 
+      // Smooth 60 FPS continuous visual interpolation of cell sizes
       for (let i = 0; i < n; i++) {
-        // Continuous smooth visual growth and decay
         if (alive[i]) {
           cellGrowth[i] = Math.min(1.0, cellGrowth[i] + dt * growSpeed);
           liveTotal++;
@@ -1768,63 +1777,86 @@
             if (fade[i] < 0.01) fade[i] = 0;
           }
         }
+      }
 
-        // Advance individual cell's staggered evolution clock
-        cellTimer[i] += dt;
-        if (cellTimer[i] >= genInterval) {
-          cellTimer[i] -= genInterval;
+      this.liveCount = liveTotal;
+      const density = liveTotal / n;
 
-          const c = i % cols;
-          const r = (i / cols) | 0;
+      // ── PROGRESSIVE DENSITY OSCILLATION & PHASE INVERSION ──
+      // When population expands to upper threshold, gently invert to "shrink"
+      if (this.ecoPhase === "grow" && density >= this.maxDensityThreshold) {
+        this.ecoPhase = "shrink";
+      }
+      // When population has contracted down very slowly and calmly, gently invert back to "grow"
+      else if (this.ecoPhase === "shrink" && density <= this.minDensityThreshold) {
+        this.ecoPhase = "grow";
+        const spot = this.findOpenSpot();
+        this.spawnColonyAtGrid(spot.c, spot.r);
+      }
 
-          const rUp = ((r - 1 + rows) % rows) * cols;
-          const rMid = r * cols;
-          const rDn = ((r + 1) % rows) * cols;
+      // Parameters invert very gently during shrink phase
+      // (Survival strictness 0.78 and birth 0.65 means population decreases very slowly and calmly)
+      const isShrink = this.ecoPhase === "shrink";
+      const survivalStrictness = isShrink ? 0.78 : 1.0;
+      const birthProbability = isShrink ? 0.65 : 1.0;
+
+      // Pre-calculate neighbor counts from current alive buffer
+      for (let r = 0; r < rows; r++) {
+        const rUp = ((r - 1 + rows) % rows) * cols;
+        const rMid = r * cols;
+        const rDn = ((r + 1) % rows) * cols;
+        for (let c = 0; c < cols; c++) {
           const cL = (c - 1 + cols) % cols;
           const cR = (c + 1) % cols;
-
-          const count =
+          neighbors[rMid + c] =
             alive[rUp + cL] + alive[rUp + c] + alive[rUp + cR] +
             alive[rMid + cL] +                 alive[rMid + cR] +
             alive[rDn + cL] + alive[rDn + c] + alive[rDn + cR];
+        }
+      }
 
-          neighbors[i] = count;
-          const wasAlive = alive[i];
+      // Staggered clock evolution: each cell evaluates its Conway neighbor rule
+      for (let i = 0; i < n; i++) {
+        cellTimer[i] += dt;
+        if (cellTimer[i] < genInterval) continue;
+        cellTimer[i] -= genInterval;
 
-          // ── PROGRESSIVE INVERSION OF CONWAY GROWTH/DECAY PARAMETERS ──
-          // When ecoPhase is "grow": normal standard Conway rules B3/S23.
-          // When ecoPhase is "shrink": parameters invert smoothly:
-          // Survival becomes stricter (only 2 neighbors survive reliably, 3 has attrition).
-          // Births become rarer, leading to a gentle, progressive natural population decrease.
-          const isShrink = this.ecoPhase === "shrink";
-          const survivalStrictness = isShrink ? 0.35 : 1.0;
-          const birthProbability = isShrink ? 0.28 : 1.0;
+        const count = neighbors[i];
+        const wasAlive = alive[i];
 
-          if (wasAlive) {
-            let survives = false;
-            if (count === 2) {
-              survives = true;
-            } else if (count === 3) {
-              survives = !isShrink || hash3(i, Math.floor(this.time * 2), 19) < survivalStrictness;
-            }
+        if (wasAlive) {
+          let survives = false;
+          if (count === 2) {
+            survives = true;
+          } else if (count === 3) {
+            survives = !isShrink || hash3(i, Math.floor(this.time * 1.5), 19) < survivalStrictness;
+          }
 
-            if (survives) {
-              // Survival
-              age[i] = Math.min(60000, age[i] + 1);
-              fade[i] = 1.0;
-            } else {
-              // Progressive natural cell mortality
-              alive[i] = 0;
-              age[i] = 0;
-              fade[i] = 0.85;
-            }
-          } else if (count === 3 && (!isShrink || hash3(i, Math.floor(this.time * 2), 31) < birthProbability)) {
-            // Birth! Inherit dominant lineage strain
-            alive[i] = 1;
+          if (survives) {
+            nextAlive[i] = 1;
+            age[i] = Math.min(60000, age[i] + 1);
+            fade[i] = 1.0;
+          } else {
+            // Underpopulation (<2) or overpopulation (>3)
+            nextAlive[i] = 0;
+            age[i] = 0;
+            fade[i] = 0.85;
+          }
+        } else {
+          // Reproduction: exactly 3 living neighbors produces a cell!
+          if (count === 3 && (!isShrink || hash3(i, Math.floor(this.time * 1.5), 31) < birthProbability)) {
+            nextAlive[i] = 1;
             age[i] = 1;
             fade[i] = 1.0;
             births++;
 
+            const c = i % cols;
+            const r = (i / cols) | 0;
+            const rUp = ((r - 1 + rows) % rows) * cols;
+            const rMid = r * cols;
+            const rDn = ((r + 1) % rows) * cols;
+            const cL = (c - 1 + cols) % cols;
+            const cR = (c + 1) % cols;
             const nbIdx = [
               rUp + cL, rUp + c, rUp + cR,
               rMid + cL,         rMid + cR,
@@ -1842,38 +1874,28 @@
             if (s0 === s1 || s0 === s2) strain[i] = s0 >= 0 ? s0 & 3 : 0;
             else if (s1 === s2 && s1 >= 0) strain[i] = s1 & 3;
             else strain[i] = Math.max(0, s0) & 3;
+          } else {
+            nextAlive[i] = 0;
           }
         }
       }
 
-      this.liveCount = liveTotal;
+      // Synchronize buffer states
+      for (let i = 0; i < n; i++) {
+        alive[i] = nextAlive[i];
+      }
+
       this.birthsLastStep = births;
       this.activeCount = activeMoving;
 
-      // ── PROGRESSIVE DENSITY OSCILLATION & PHASE INVERSION ──
-      const totalCells = n;
-      const density = liveTotal / totalCells;
-
-      // When population grows and reaches upper density threshold, smoothly invert phase to "shrink"
-      if (this.ecoPhase === "grow" && density >= this.maxDensityThreshold) {
-        this.ecoPhase = "shrink";
-      }
-      // When population has progressively decreased down to lower threshold, invert back to "grow"
-      else if (this.ecoPhase === "shrink" && density <= this.minDensityThreshold) {
-        this.ecoPhase = "grow";
-        // Seed a small fresh constellation in a new open region
-        const spot = this.findOpenSpot();
-        this.spawnColonyAtGrid(spot.c, spot.r);
-      }
-
-      // ── PERPETUAL ECOSYSTEM DIRECTOR (Evolving Across Different Spaces) ──
+      // ── PERPETUAL ECOSYSTEM DIRECTOR ──
+      // Prevents static locked blocks from freezing forever and keeps active gliders moving across space
       this.directorTimer += dt;
-      if (this.directorTimer >= 1.25) {
+      if (this.directorTimer >= 1.4) {
         this.directorTimer = 0;
         this.generation++;
-        const minEmergencyLive = Math.max(14, Math.round(totalCells * 0.0035));
+        const minEmergencyLive = Math.max(12, Math.round(n * 0.003));
 
-        // If population ever falls below emergency minimum, reseed a small fresh pocket
         if (liveTotal < minEmergencyLive) {
           this.ecoPhase = "grow";
           this.seedEcosystem(false);
@@ -1881,29 +1903,37 @@
           return;
         }
 
-        // Gradual, slow dissolution of very old immortal still-lifes (>48 gens)
-        // so colonies don't remain forever frozen in the same spot
-        if (this.ecoPhase === "shrink" || density > 0.05) {
-          for (let i = 0; i < totalCells; i++) {
-            if (alive[i] && age[i] > 48 && hash3(i, this.generation, 17) < (this.ecoPhase === "shrink" ? 0.22 : 0.08)) {
+        // Dissolve or perturb very old immortal static blocks (still-lifes like 2x2 blocks or beehives)
+        // so that isolated blocks do not sit idle forever on the workbench!
+        for (let i = 0; i < n; i++) {
+          if (alive[i] && age[i] > 32) {
+            const h = hash3(i, this.generation, 43);
+            if (isShrink ? h < 0.08 : h < 0.035) {
+              // Gently dissolve static block
               alive[i] = 0;
+              nextAlive[i] = 0;
               age[i] = 0;
-              fade[i] = 0.5;
+              fade[i] = 0.45;
+            } else if (h > 0.985 && density < this.maxDensityThreshold * 0.8) {
+              // Perturb block into a moving glider
+              const c = i % cols;
+              const r = (i / cols) | 0;
+              this.stampPattern("glider", c, r, (strain[i] + 1) & 3, Math.random() < 0.5, Math.random() < 0.5);
             }
           }
         }
 
-        if (births < 3 || activeMoving < 14) {
+        if (births < 3 || activeMoving < 10) {
           this.stagnantSteps++;
         } else {
           this.stagnantSteps = Math.max(0, this.stagnantSteps - 1);
         }
 
-        // When in grow phase and tranquil, gently introduce wandering life in open spots
-        if (this.ecoPhase === "grow" && (this.stagnantSteps >= 6 || (this.generation % 24 === 0 && activeMoving < 22)) && density < this.maxDensityThreshold * 0.75) {
+        // If the window gets quiet or empty in one area, launch a moving glider across open space
+        if (this.ecoPhase === "grow" && (this.stagnantSteps >= 5 || (this.generation % 20 === 0 && activeMoving < 18)) && density < this.maxDensityThreshold * 0.7) {
           this.stagnantSteps = 0;
           const spot = this.findOpenSpot();
-          this.spawnColonyAtGrid(spot.c, spot.r);
+          this.stampPattern("glider", spot.c, spot.r, (this.nextStrainCycle++) & 3, Math.random() < 0.5, Math.random() < 0.5);
         }
       }
     }
