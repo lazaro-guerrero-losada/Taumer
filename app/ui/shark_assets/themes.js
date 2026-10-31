@@ -1710,13 +1710,6 @@
       this.events.push({ kind: "splash", x: px, y: py });
     }
 
-      this.updateNeighborCounts();
-      const px = (c0 + 0.5) * cw;
-      const py = (r0 + 0.5) * ch;
-      this.events.push({ kind: "divide", x: px, y: py });
-      this.events.push({ kind: "splash", x: px, y: py });
-    }
-
     // Triggered when the user clicks/taps on a spot in the window!
     splash(x, y) {
       if (!this.cols || !this.rows) return;
