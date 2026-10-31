@@ -1348,15 +1348,15 @@ class OceanEngine {
     this.acc = 0;
     this.disposed = false;
 
+    this.onResize = () => this.resize();
     window.addEventListener("pointermove", this.onPointerMove, { passive: true });
     window.addEventListener("pointerdown", this.onPointerDown, { passive: true });
     document.documentElement.addEventListener("pointerleave", this.onPointerLeave);
     window.addEventListener("blur", this.onPointerLeave);
     window.addEventListener("pointerleave", this.onPointerLeave);
-    window.addEventListener("blur", this.onPointerLeave);
-    window.addEventListener("resize", () => this.resize());
+    window.addEventListener("resize", this.onResize);
 
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver = new ResizeObserver(this.onResize);
     this.resizeObserver.observe(canvas);
 
     this.resize();
@@ -1370,7 +1370,9 @@ class OceanEngine {
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("pointerdown", this.onPointerDown);
     document.documentElement.removeEventListener("pointerleave", this.onPointerLeave);
+    window.removeEventListener("pointerleave", this.onPointerLeave);
     window.removeEventListener("blur", this.onPointerLeave);
+    window.removeEventListener("resize", this.onResize);
   }
 
   resize() {

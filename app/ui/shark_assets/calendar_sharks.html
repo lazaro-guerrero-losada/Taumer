@@ -47,14 +47,10 @@
   <div class="calendar-frost-glass" id="calendar-frost-glass"></div>
 
   <script src="sharks.js"></script>
+  <script src="themes.js"></script>
   <script>
     const canvas = document.getElementById("shark-canvas");
-    const engine = new window.OceanEngine(canvas, [
-      { kind: "hammerhead", size: 1.0 },
-      { kind: "classic", size: 0.88 },
-      { kind: "thresher", size: 0.92 },
-      { kind: "mako", size: 0.78 }
-    ]);
+    window.initBackgroundCanvas(canvas);
   </script>
 </body>
 </html>

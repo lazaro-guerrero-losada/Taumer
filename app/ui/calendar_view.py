@@ -1442,15 +1442,17 @@ class CalendarView(Gtk.Box):
 
 class CalendarContainer(Gtk.Overlay):
     """
-    Calendar tab container with live ASCII Sharks ocean animation swimming behind
+    Calendar tab container with live ASCII animation swimming behind
     the translucent frosted glass timeline canvas and drawer.
     """
     def __init__(self, storage):
         super().__init__()
+        self.storage = storage
+        self._page_loaded = False
         self.set_hexpand(True)
         self.set_vexpand(True)
 
-        # Bottom Layer: Ambient ASCII Sharks Ocean Engine
+        # Bottom Layer: Ambient ASCII Engine
         self.webview = WebKit.WebView()
         self.webview.set_hexpand(True)
         self.webview.set_vexpand(True)
@@ -1458,10 +1460,12 @@ class CalendarContainer(Gtk.Overlay):
         settings.set_enable_webgl(True)
         settings.set_allow_file_access_from_file_urls(True)
         settings.set_allow_universal_access_from_file_urls(True)
+        self.webview.connect("load-changed", self._on_load_changed)
 
         assets_dir = Path(__file__).resolve().parent / "shark_assets"
         html_file = assets_dir / "calendar_sharks.html"
-        self.webview.load_uri(html_file.as_uri())
+        bg_theme = self.storage.get_settings().get("background_theme", "sharks")
+        self.webview.load_uri(f"{html_file.as_uri()}?theme={bg_theme}")
 
         self.set_child(self.webview)
 
@@ -1469,7 +1473,25 @@ class CalendarContainer(Gtk.Overlay):
         self.cal_view = CalendarView(storage)
         self.add_overlay(self.cal_view)
 
+    def _on_load_changed(self, webview, event):
+        if event == WebKit.LoadEvent.FINISHED:
+            self._page_loaded = True
+            bg_theme = self.storage.get_settings().get("background_theme", "sharks")
+            self.set_background_theme(bg_theme)
+
+    def set_background_theme(self, theme: str):
+        if not self._page_loaded:
+            return
+        try:
+            import json
+            script = f"if (window.setBackgroundTheme) window.setBackgroundTheme({json.dumps(theme)});"
+            self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
+        except Exception as e:
+            print(f"[CalendarContainer] JS eval error: {e}")
+
     def refresh(self):
+        bg_theme = self.storage.get_settings().get("background_theme", "sharks")
+        self.set_background_theme(bg_theme)
         if hasattr(self.cal_view, "refresh"):
             self.cal_view.refresh()
 

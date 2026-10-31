@@ -1335,7 +1335,7 @@ class SettingsDialog(Gtk.Window):
         self.on_saved_cb = on_saved_cb
 
         self.set_title("Preferences & Module Configuration")
-        self.set_default_size(520, 580)
+        self.set_default_size(560, 660)
         self.add_css_class("card-box")
 
         self._build_ui()
@@ -1353,7 +1353,7 @@ class SettingsDialog(Gtk.Window):
         h_lbl = Gtk.Label(label="Preferences & Modules")
         h_lbl.add_css_class("text-heading")
         h_lbl.set_halign(Gtk.Align.START)
-        s_lbl = Gtk.Label(label="Customize active features, daily targets, and privacy filters for your workflow.")
+        s_lbl = Gtk.Label(label="Customize ambient ASCII backgrounds, active features, daily targets, and privacy filters.")
         s_lbl.add_css_class("text-muted")
         s_lbl.set_halign(Gtk.Align.START)
         top.append(h_lbl)
@@ -1361,6 +1361,70 @@ class SettingsDialog(Gtk.Window):
         vbox.append(top)
 
         settings = self.storage.get_settings()
+
+        # Section 0: Ambient ASCII Background Theme
+        sec_bg = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        sec_bg.add_css_class("card-box-accent")
+
+        lbl_sec_bg = Gtk.Label(label="AMBIENT ASCII BACKGROUND (HOME & CALENDAR)")
+        lbl_sec_bg.add_css_class("text-muted")
+        lbl_sec_bg.set_halign(Gtk.Align.START)
+        sec_bg.append(lbl_sec_bg)
+
+        self.bg_themes = [
+            ("sharks", "◈ Sharks", "Classic ocean sharks (Hammerhead, Thresher, Mako) swimming with schooling fish."),
+            ("mantas", "◇ Manta Rays", "Graceful oceanic manta & spotted eagle rays gliding with undulating wings."),
+            ("jellyfish", "◎ Jellyfish", "Rhythmic deep-sea pulsing jellyfish bells with flowing tentacles & plankton."),
+            ("bacteria", "⊞ Game of Life", "John Horton Conway's 1970 cellular automaton — fluid, asynchronous cell growth & click-to-spawn colonies."),
+            ("waves", "≈ Sea Waves", "Permanent undulating ocean waves rolling gently from top to bottom with organic lateral swell distortion."),
+        ]
+        self.selected_bg_theme = settings.get("background_theme", "sharks")
+        if self.selected_bg_theme not in [t[0] for t in self.bg_themes]:
+            self.selected_bg_theme = "sharks"
+
+        bg_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        bg_bar.add_css_class("segmented-bar")
+        bg_bar.set_hexpand(True)
+
+        self.bg_buttons = {}
+
+        self.lbl_bg_desc = Gtk.Label(label="")
+        self.lbl_bg_desc.add_css_class("text-muted")
+        self.lbl_bg_desc.set_halign(Gtk.Align.START)
+        self.lbl_bg_desc.set_wrap(True)
+
+        def on_bg_theme_clicked(btn, theme_id):
+            self.selected_bg_theme = theme_id
+            for tid, b in self.bg_buttons.items():
+                if tid == theme_id:
+                    b.add_css_class("active")
+                else:
+                    b.remove_css_class("active")
+            for tid, _, desc in self.bg_themes:
+                if tid == theme_id:
+                    self.lbl_bg_desc.set_text(desc)
+                    break
+            # Live-apply and persist background selection immediately
+            cur_s = self.storage.get_settings()
+            cur_s["background_theme"] = theme_id
+            self.storage.save_settings(cur_s)
+            if self.on_saved_cb:
+                self.on_saved_cb()
+
+        for idx, (tid, label_txt, desc) in enumerate(self.bg_themes):
+            b = Gtk.Button(label=label_txt)
+            b.add_css_class("segmented-btn")
+            b.set_hexpand(True)
+            if tid == self.selected_bg_theme:
+                b.add_css_class("active")
+                self.lbl_bg_desc.set_text(desc)
+            b.connect("clicked", on_bg_theme_clicked, tid)
+            bg_bar.append(b)
+            self.bg_buttons[tid] = b
+
+        sec_bg.append(bg_bar)
+        sec_bg.append(self.lbl_bg_desc)
+        vbox.append(sec_bg)
 
         # Section 1: Modules Customization
         sec1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -1562,6 +1626,7 @@ class SettingsDialog(Gtk.Window):
 
     def _on_save_preferences(self, btn):
         settings = self.storage.get_settings()
+        settings["background_theme"] = getattr(self, "selected_bg_theme", "sharks")
         settings["enable_watcher"] = self.switch_watcher.get_active()
         settings["enable_reports"] = self.switch_reports.get_active()
         settings["daily_work_target_minutes"] = int(self.spin_wh.get_value()) * 60 + int(self.spin_wm.get_value())

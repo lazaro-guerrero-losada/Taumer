@@ -177,6 +177,12 @@ class MainWindow(Adw.ApplicationWindow):
         settings = self.storage.get_settings()
         enable_w = settings.get("enable_watcher", True)
         enable_r = settings.get("enable_reports", True)
+        bg_theme = settings.get("background_theme", "sharks")
+
+        if hasattr(self, "shark_home_view") and self.shark_home_view:
+            self.shark_home_view.set_background_theme(bg_theme)
+        if hasattr(self, "calendar_view") and self.calendar_view:
+            self.calendar_view.set_background_theme(bg_theme)
 
         if "watcher" in self.nav_buttons:
             self.nav_buttons["watcher"].set_visible(enable_w)

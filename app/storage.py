@@ -469,7 +469,8 @@ class StorageManager:
             "enable_reports": True,
             "watcher_min_duration_seconds": 60,
             "ignored_apps": "antigravity, main.py, agy, taumer, trazos, xprop, subagent",
-            "break_project_name": "Break Time"
+            "break_project_name": "Break Time",
+            "background_theme": "sharks"
         }
         if CONFIG_FILE.exists():
             try:

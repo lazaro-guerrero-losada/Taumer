@@ -92,10 +92,11 @@ class SharkHomeView(Gtk.Box):
         # Connect load event
         self.webview.connect("load-changed", self._on_load_changed)
 
-        # Load HTML
+        # Load HTML with configured background theme
         assets_dir = Path(__file__).resolve().parent / "shark_assets"
         html_file = assets_dir / "index.html"
-        self.webview.load_uri(f"file://{html_file.resolve()}")
+        bg_theme = self.storage.get_settings().get("background_theme", "sharks")
+        self.webview.load_uri(f"file://{html_file.resolve()}?theme={bg_theme}")
 
         self.append(self.webview)
 
@@ -112,10 +113,19 @@ class SharkHomeView(Gtk.Box):
         except Exception as e:
             print(f"[SharkHomeView] JS eval error: {e}")
 
-    def refresh(self):
-        """Pushes latest projects and pending tasks into the Web view."""
+    def set_background_theme(self, theme: str):
         if not self._page_loaded:
             return
+        self._eval_js(f"if (window.setBackgroundTheme) window.setBackgroundTheme({json.dumps(theme)});")
+
+    def refresh(self):
+        """Pushes latest projects, pending tasks, and background theme into the Web view."""
+        if not self._page_loaded:
+            return
+
+        # 0. Background theme
+        bg_theme = self.storage.get_settings().get("background_theme", "sharks")
+        self.set_background_theme(bg_theme)
 
         # 1. Projects
         projects = self.storage.get_projects()
