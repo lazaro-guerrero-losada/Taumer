@@ -2418,6 +2418,8 @@
           isWaiting: false,
           waitDuration: 0,
           yieldTargetId: -1,
+          isPivoting: false,
+          paddler: "both",
           depth: rand(0.55, 0.95),
           phase: rand(0, TAU),
           strokeCycle: (i * (TAU / count)) + rand(0, 0.6), // Staggered swimming strokes!
@@ -2471,50 +2473,98 @@
     stepTurtles(dt) {
       const { turtles, width: W, height: H, pointer } = this;
       const pad = 120; // Margin from screen boundaries for straight transect turns
+      const N = turtles.length;
 
-      // ── 1. LONG-RANGE RECIPROCAL ENCOUNTER ADJUSTMENT ──
-      // When two turtles are cruising directly towards each other on reciprocal courses,
-      // gently bias both to starboard (their right) well in advance (300-480px apart),
-      // so their tracks naturally separate and they glide past side-by-side with plenty of room!
-      for (let i = 0; i < turtles.length; i++) {
-        const t = turtles[i];
-        if (t.isTurning || t.turnCooldown > 0) continue;
-        const hx = t.nodes[0];
-        const hy = t.nodes[1];
-        const fx = Math.cos(t.heading);
-        const fy = Math.sin(t.heading);
+      // ── 1. PREDICTIVE LOOKAHEAD & RIGHT-OF-WAY PROTOCOL ──
+      // Look ahead over a wide range (200-480px) to detect intersecting trajectories early.
+      // Rules:
+      //  A. Head-on: both alter course slightly to starboard (their own right) with single-flipper paddling.
+      //  B. Crossing: "la que esté por la izquierda sea la que debe ceder el paso" — the turtle on the left
+      //     yields and trims course to pass behind; the turtle on the right maintains course with zero interruption!
+      for (let i = 0; i < N; i++) {
+        const ti = turtles[i];
+        if (ti.turnCooldown > 0 || ti.isPivoting) continue;
+        const hxi = ti.nodes[0];
+        const hyi = ti.nodes[1];
+        const fxi = Math.cos(ti.heading);
+        const fyi = Math.sin(ti.heading);
+        const nxi = -fyi;
+        const nyi = fxi;
+        const spdi = Math.max(ti.speed, 20);
 
-        for (let j = i + 1; j < turtles.length; j++) {
-          const other = turtles[j];
-          const ox = other.nodes[0];
-          const oy = other.nodes[1];
-          const dx = ox - hx;
-          const dy = oy - hy;
+        for (let j = i + 1; j < N; j++) {
+          const tj = turtles[j];
+          if (tj.turnCooldown > 0 || tj.isPivoting) continue;
+          const hxj = tj.nodes[0];
+          const hyj = tj.nodes[1];
+          const fxj = Math.cos(tj.heading);
+          const fyj = Math.sin(tj.heading);
+          const spdj = Math.max(tj.speed, 20);
+
+          const dx = hxj - hxi;
+          const dy = hyj - hyi;
           const dist = Math.hypot(dx, dy);
 
-          if (dist > 220 && dist < 480) {
-            const ofx = Math.cos(other.heading);
-            const ofy = Math.sin(other.heading);
-            const headingDot = fx * ofx + fy * ofy;
-            // Swimming towards each other
-            if (headingDot < -0.65) {
-              const forwardDot = (dx * fx + dy * fy) / dist;
-              if (forwardDot > 0.65) {
-                // Both alter slightly to their right (starboard passing)
-                t.targetHeading = t.heading + 0.20;
-                t.isTurning = true;
-                t.turnCooldown = 5.0;
-                other.targetHeading = other.heading + 0.20;
-                other.isTurning = true;
-                other.turnCooldown = 5.0;
-              }
+          if (dist < 180 || dist > 480) continue;
+
+          // Relative velocity vector: V_rel = V_i - V_j
+          const vxi = fxi * spdi;
+          const vyi = fyi * spdi;
+          const vxj = fxj * spdj;
+          const vyj = fyj * spdj;
+          const rvx = vxi - vxj;
+          const rvy = vyi - vyj;
+          const rv2 = rvx * rvx + rvy * rvy;
+          if (rv2 < 10) continue;
+
+          // Time to closest point of approach (t_cpa)
+          const tCpa = (dx * rvx + dy * rvy) / rv2;
+          if (tCpa <= 0.8 || tCpa >= 5.5) continue; // Not approaching or too far in future
+
+          // Distance at closest approach (d_cpa)
+          const cpaDist = Math.hypot(dx - rvx * tCpa, dy - rvy * tCpa);
+          const collisionRange = (ti.length + tj.length) * 0.65;
+          if (cpaDist >= collisionRange) continue; // Paths will clear safely
+
+          // Paths will intersect!
+          const headingDot = fxi * fxj + fyi * fyj;
+
+          if (headingDot < -0.55) {
+            // ── CASE A: HEAD-ON ENCOUNTER (Van de frente) ──
+            // Both turtles steer to their right (starboard), paddling with left flipper!
+            ti.targetHeading = ti.heading + 0.22;
+            ti.paddler = "left";
+            ti.isTurning = true;
+            ti.turnCooldown = 4.5;
+
+            tj.targetHeading = tj.heading + 0.22;
+            tj.paddler = "left";
+            tj.isTurning = true;
+            tj.turnCooldown = 4.5;
+          } else {
+            // ── CASE B: CROSSING TRAJECTORIES (Se van a cruzar) ──
+            // Rule: "la que esté por la izquierda sea la que debe ceder el paso"
+            const sideI = dx * nxi + dy * nyi; // > 0 means tj is to the left of ti
+            if (sideI > 0) {
+              // tj is to the LEFT of ti -> tj MUST YIELD!
+              // ti is on tj's right -> ti has right of way and proceeds straight!
+              tj.targetHeading = tj.heading - 0.25; // tj steers left to pass behind ti
+              tj.paddler = "right"; // paddles right flipper to steer left
+              tj.isTurning = true;
+              tj.turnCooldown = 4.5;
+            } else {
+              // tj is to the RIGHT of ti -> ti is to the LEFT of tj -> ti MUST YIELD!
+              ti.targetHeading = ti.heading - 0.25; // ti steers left to pass behind tj
+              ti.paddler = "right";
+              ti.isTurning = true;
+              ti.turnCooldown = 4.5;
             }
           }
         }
       }
 
       // ── 2. INDIVIDUAL TURTLE NAVIGATION & PROTOCOL ──
-      for (let i = 0; i < turtles.length; i++) {
+      for (let i = 0; i < N; i++) {
         const t = turtles[i];
         const nodes = t.nodes;
         const L = t.length;
@@ -2525,12 +2575,12 @@
 
         // Boundary detection: When approaching an edge, initiate a wide, smooth turn towards ocean center
         const nearEdge = (hx < pad || hx > W - pad || hy < pad || hy > H - pad);
-        if (nearEdge && t.turnCooldown <= 0 && !t.isTurning) {
+        if (nearEdge && t.turnCooldown <= 0 && !t.isTurning && !t.isPivoting) {
           const targetX = W / 2 + rand(-W * 0.18, W * 0.18);
           const targetY = H / 2 + rand(-H * 0.18, H * 0.18);
           t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.10, 0.10);
           t.isTurning = true;
-          t.turnCooldown = 6.0; // Maintain the new straight transect for at least 6s
+          t.turnCooldown = 6.0;
         }
 
         // Click splash fleeing response
@@ -2540,7 +2590,8 @@
           const fy = hy - t.fleeY;
           t.targetHeading = Math.atan2(fy, fx);
           t.isTurning = true;
-          t.isWaiting = false;
+          t.isPivoting = false;
+          t.paddler = "both";
         }
 
         // Pointer avoidance
@@ -2554,50 +2605,50 @@
           }
         }
 
-        // ── 3. WAIT-FOR-CLEARANCE COLLISION PROTOCOL ("Esperar hasta que tenga hueco") ──
-        // Instead of swerving sideways (which causes drifting), if another turtle occupies
-        // our forward corridor, STOP AND WAIT peacefully until the way is completely clear!
+        // ── 3. CLOSE-QUARTERS CORRIDOR CHECK & FLIPPER PIVOT TURN ──
+        // Check if forward corridor is blocked by another turtle
         let corridorBlocked = false;
+        let blockLat = 0;
         const fx = Math.cos(t.heading);
         const fy = Math.sin(t.heading);
         const nx = -fy;
         const ny = fx;
 
-        // Forward corridor dimensions
-        const corridorReach = L * 1.05 + 32;
-        const corridorHalfWidth = L * 0.36 + 16;
+        const corridorReach = L * 1.05 + 28;
+        const corridorHalfWidth = L * 0.35 + 14;
 
-        for (let j = 0; j < turtles.length; j++) {
+        for (let j = 0; j < N; j++) {
           if (i === j) continue;
           const other = turtles[j];
 
-          // Check sample points along other turtle: snout (0), mid-shell (6), rear-shell (12)
           for (const idx of [0, 6, 12]) {
             const px = other.nodes[idx * 2];
             const py = other.nodes[idx * 2 + 1];
             const dx = px - hx;
             const dy = py - hy;
             const fwd = dx * fx + dy * fy;
-            const lat = Math.abs(dx * nx + dy * ny);
+            const lat = dx * nx + dy * ny;
 
-            if (fwd > 0 && fwd < corridorReach && lat < corridorHalfWidth) {
+            if (fwd > 0 && fwd < corridorReach && Math.abs(lat) < corridorHalfWidth) {
               const otherFx = Math.cos(other.heading);
               const otherFy = Math.sin(other.heading);
-              const reciprocal = (fx * otherFx + fy * otherFy) < -0.3;
+              const headingDot = fx * otherFx + fy * otherFy;
+              const reciprocal = headingDot < -0.3;
 
               if (reciprocal) {
-                // Meeting head-on: higher ID yields and waits; lower ID has right-of-way
+                // In head-on, higher ID yields and rotates away
                 if (t.id > other.id) {
                   corridorBlocked = true;
-                  t.yieldTargetId = other.id;
+                  blockLat = lat;
                   break;
                 }
               } else {
-                // Crossing / following: if other already yielded to us, we proceed
-                if (other.isWaiting && other.yieldTargetId === t.id) {
-                  // Other turtle is waiting for us! We keep swimming
+                // Crossing: check if other is already yielding to us
+                if (other.isPivoting && other.yieldTargetId === t.id) {
+                  // Other turtle is yielding/pivoting for us! We proceed
                 } else if (t.id > other.id || fwd < corridorReach * 0.7) {
                   corridorBlocked = true;
+                  blockLat = lat;
                   t.yieldTargetId = other.id;
                   break;
                 }
@@ -2607,94 +2658,105 @@
           if (corridorBlocked) break;
         }
 
-        t.isWaiting = corridorBlocked;
+        if (corridorBlocked) {
+          // Obstacle directly in front!
+          // BIOMECHANICAL FLIPPER PIVOT:
+          // The turtle paddles with ONLY ONE flipper, while the opposite flipper acts as
+          // the stationary pivot center in the water ("rotando sobre la aleta contraria")!
+          const turnDir = blockLat >= 0 ? 1 : -1; // Turn right if obstacle is to the left/center; else turn left
+          const shoulderDist = L * 0.22;
+          const flipperOffset = L * 0.20;
 
-        if (t.isWaiting) {
-          t.waitDuration += dt;
-          // Failsafe: if waiting for over 5s, gently nudge course to find an open path
-          if (t.waitDuration > 5.0) {
-            t.waitDuration = 0;
-            t.targetHeading = t.heading + (t.id % 2 === 0 ? 0.30 : -0.30);
-            t.isTurning = true;
-            t.turnCooldown = 5.0;
+          let pivotX, pivotY;
+          if (turnDir > 0) {
+            // Turning RIGHT: pivot on the RIGHT flipper; paddle with LEFT flipper!
+            pivotX = hx - fx * shoulderDist - nx * flipperOffset;
+            pivotY = hy - fy * shoulderDist - ny * flipperOffset;
+            t.paddler = "left";
+          } else {
+            // Turning LEFT: pivot on the LEFT flipper; paddle with RIGHT flipper!
+            pivotX = hx - fx * shoulderDist + nx * flipperOffset;
+            pivotY = hy - fy * shoulderDist + ny * flipperOffset;
+            t.paddler = "right";
           }
-        } else {
-          t.waitDuration = 0;
-          t.yieldTargetId = -1;
-        }
 
-        // ── 4. STRAIGHT-LINE HEADING TRACKING (NO DRIFTING!) ──
-        // When waiting: DO NOT TURN! Hold the current heading stably.
-        // When cruising: turns smoothly at a controlled, majestic rate (max ~18 deg/s)
-        if (!t.isWaiting) {
+          // Gentle in-place rotation around the anchored flipper
+          const rotSpeed = 0.40; // ~23 deg/s
+          const dTheta = turnDir * rotSpeed * dt;
+          const cosR = Math.cos(dTheta);
+          const sinR = Math.sin(dTheta);
+
+          for (let k = 0; k < TURTLE_NODES; k++) {
+            const dx = nodes[k * 2] - pivotX;
+            const dy = nodes[k * 2 + 1] - pivotY;
+            nodes[k * 2] = pivotX + dx * cosR - dy * sinR;
+            nodes[k * 2 + 1] = pivotY + dx * sinR + dy * cosR;
+          }
+          t.heading += dTheta;
+          t.targetHeading = t.heading;
+          t.turn = dTheta / dt;
+          t.speed = Math.max(0, t.speed - dt * 35); // Forward translation ceases
+          t.strokeCycle += dt * 1.8; // Active stroke of the paddling flipper
+          t.isPivoting = true;
+        } else {
+          // Nothing blocking ahead ("cuando ya no haya nada delante pues que tiren!"):
+          if (t.isPivoting) {
+            t.isPivoting = false;
+            t.paddler = "both";
+            t.targetHeading = t.heading;
+            t.yieldTargetId = -1;
+          }
+
+          // ── 4. STRAIGHT-LINE HEADING TRACKING (NO DRIFTING!) ──
           const diff = angleDiff(t.heading, t.targetHeading);
           if (Math.abs(diff) > 0.02) {
             const maxTurn = 0.32 * dt; // Majestic turn rate
             const step = clamp(diff, -maxTurn, maxTurn);
             t.heading += step;
             t.turn = step / dt;
+            // Trim flipper based on turn direction
+            t.paddler = step > 0.005 ? "left" : (step < -0.005 ? "right" : "both");
           } else {
             t.heading = t.targetHeading;
             t.turn = 0;
             t.isTurning = false;
+            t.paddler = "both";
           }
-        } else {
-          t.turn = 0;
-        }
 
-        // ── 5. PHYSICAL ANIMAL LOCOMOTION & FLIPPER FLAPPING ──
-        let thrustPower = 0;
-        let isPowerStroke = false;
-
-        if (!t.isWaiting) {
-          // Normal swimming: rhythmic flipper flap (stretch wide on recovery, contract tight on power stroke)
+          // ── 5. PHYSICAL ANIMAL LOCOMOTION & FLIPPER FLAPPING ──
           t.strokeCycle += dt * (2.1 + (t.alarm > 0.1 ? 1.4 : 0));
           const strokeSin = Math.sin(t.strokeCycle);
-          isPowerStroke = strokeSin > 0;
-          thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
+          const isPowerStroke = strokeSin > 0;
+          const thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
 
           const baseGlideSpeed = 16 + L * 0.025;
           const peakThrustSpeed = baseGlideSpeed + 26 + (t.alarm > 0.1 ? 16 : 0);
           const targetSpeed = baseGlideSpeed + thrustPower * (peakThrustSpeed - baseGlideSpeed);
           const accelRate = isPowerStroke ? 3.8 : 1.3;
           t.speed += (targetSpeed - t.speed) * Math.min(1, dt * accelRate);
-        } else {
-          // Waiting for corridor to clear ("esperarse hasta que tenga hueco"):
-          // Smoothly glide to a stop and maintain buoyant resting posture
-          t.strokeCycle += dt * 0.28; // Calm gentle buoyant idle
-          t.speed += (0 - t.speed) * Math.min(1, dt * 2.6);
-          if (t.speed < 0.2) t.speed = 0;
-        }
 
-        // ── 6. STRICTLY FORWARD TANGENTIAL VELOCITY ──
-        // Nodes only translate along the forward heading direction!
-        const moveFx = Math.cos(t.heading);
-        const moveFy = Math.sin(t.heading);
-        nodes[0] += moveFx * t.speed * dt;
-        nodes[1] += moveFy * t.speed * dt;
+          // ── 6. STRICTLY FORWARD TANGENTIAL VELOCITY ──
+          const moveFx = Math.cos(t.heading);
+          const moveFy = Math.sin(t.heading);
+          nodes[0] += moveFx * t.speed * dt;
+          nodes[1] += moveFy * t.speed * dt;
 
-        // ── 7. KINEMATIC FOLLOW-THE-LEADER SPINE (ZERO LATERAL DRIFT!) ──
-        // Every segment follows the path that the segment in front of it carved in the water.
-        // Because each segment displacement is purely tangential to the water track,
-        // lateral velocity is strictly 0: no sideways skidding or drifting!
-        const seg = L / (TURTLE_NODES - 1);
-        let prevAngle = t.heading + Math.PI;
+          // ── 7. KINEMATIC FOLLOW-THE-LEADER SPINE (ZERO LATERAL DRIFT!) ──
+          const seg = L / (TURTLE_NODES - 1);
+          let prevAngle = t.heading + Math.PI;
 
-        for (let k = 1; k < TURTLE_NODES; k++) {
-          const px = nodes[(k - 1) * 2];
-          const py = nodes[(k - 1) * 2 + 1];
-          let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
+          for (let k = 1; k < TURTLE_NODES; k++) {
+            const px = nodes[(k - 1) * 2];
+            const py = nodes[(k - 1) * 2 + 1];
+            let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
 
-          // Head/neck (k=1): slight natural articulation
-          // Carapace (k=2..12): stiff constraint (0.038 rad) keeps shell firm and straight,
-          // while tracing the curve of the water without lateral drift!
-          // Tail (k=13..15): trailing tail
-          const maxBend = k <= 1 ? 0.15 : (k <= 12 ? 0.038 : 0.14);
-          angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
+            const maxBend = k <= 1 ? 0.15 : (k <= 12 ? 0.038 : 0.14);
+            angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
 
-          nodes[k * 2] = px + Math.cos(angle) * seg;
-          nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
-          prevAngle = angle;
+            nodes[k * 2] = px + Math.cos(angle) * seg;
+            nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
+            prevAngle = angle;
+          }
         }
       }
     }
@@ -2817,17 +2879,23 @@
           const span = L * (shape.flipperSpan || 0.49) * extension;
           const tipS = (0.22 + 0.10 + 0.28 * Math.pow(strokeSin, 1.15)) * L;
 
-          // Left tip
-          const lx = t.nodes[0] - fx * tipS + nx * span;
-          const ly = t.nodes[1] - fy * tipS + ny * span;
-          const li = this.cellIndex(lx, ly);
-          if (li >= 0) energy[li] = Math.min(1.6, energy[li] + 0.045 * strokeSin);
+          const paddler = t.paddler || "both";
 
-          // Right tip
-          const rx = t.nodes[0] - fx * tipS - nx * span;
-          const ry = t.nodes[1] - fy * tipS - ny * span;
-          const ri = this.cellIndex(rx, ry);
-          if (ri >= 0) energy[ri] = Math.min(1.6, energy[ri] + 0.045 * strokeSin);
+          // Left tip (active if paddling with left or both)
+          if (paddler === "both" || paddler === "left") {
+            const lx = t.nodes[0] - fx * tipS + nx * span;
+            const ly = t.nodes[1] - fy * tipS + ny * span;
+            const li = this.cellIndex(lx, ly);
+            if (li >= 0) energy[li] = Math.min(1.6, energy[li] + 0.045 * strokeSin);
+          }
+
+          // Right tip (active if paddling with right or both)
+          if (paddler === "both" || paddler === "right") {
+            const rx = t.nodes[0] - fx * tipS - nx * span;
+            const ry = t.nodes[1] - fy * tipS - ny * span;
+            const ri = this.cellIndex(rx, ry);
+            if (ri >= 0) energy[ri] = Math.min(1.6, energy[ri] + 0.045 * strokeSin);
+          }
         }
       }
     }
@@ -2975,20 +3043,30 @@
       const strokeCos = Math.cos(t.strokeCycle);
       const aMin = L * 0.08;
 
-      // When strokeSin < 0 (recovery): flippers reach forward and STRETCH wide out (estirarse)!
-      // When strokeSin > 0 (power stroke): flippers sweep back and CONTRACT tight (encogerse)!
+      // Single-flipper paddling vs anchored braking flipper:
+      // bestSign > 0 is LEFT flipper; bestSign < 0 is RIGHT flipper.
+      const isLeft = bestSign > 0;
+      const paddler = t.paddler || "both";
+      const isPaddling = (paddler === "both") || (paddler === "left" && isLeft) || (paddler === "right" && !isLeft);
+
       let extension;
       let strokeSweep;
-      if (strokeSin < 0) {
-        // Recovery / Reach: fully stretched out to the sides and reached forward
-        const extProg = -strokeSin; // 0 to 1
-        extension = 1.0 + 0.20 * extProg; // Expands up to 1.20x base span!
-        strokeSweep = -0.15 * extProg;    // Reaches forward towards head (s -> 0.14)
+      if (isPaddling) {
+        if (strokeSin < 0) {
+          // Recovery / Reach: fully stretched out to the sides and reached forward
+          const extProg = -strokeSin; // 0 to 1
+          extension = 1.0 + 0.20 * extProg; // Expands up to 1.20x base span!
+          strokeSweep = -0.15 * extProg;    // Reaches forward towards head (s -> 0.14)
+        } else {
+          // Power stroke: pulls back and contracts tight against the carapace flanks
+          const pullProg = strokeSin; // 0 to 1
+          extension = 1.0 - 0.58 * Math.pow(pullProg, 1.25); // Contracts down to 0.42x base span!
+          strokeSweep = 0.28 * Math.pow(pullProg, 1.15);     // Sweeps back along shell (s -> 0.52)
+        }
       } else {
-        // Power stroke: pulls back and contracts tight against the carapace flanks
-        const pullProg = strokeSin; // 0 to 1
-        extension = 1.0 - 0.58 * Math.pow(pullProg, 1.25); // Contracts down to 0.42x base span!
-        strokeSweep = 0.28 * Math.pow(pullProg, 1.15);     // Sweeps back along shell (s -> 0.52)
+        // Anchored / braking flipper: held steady close to the shell as pivot
+        extension = 0.48;
+        strokeSweep = 0.10;
       }
 
       // Banking into turns: outer flipper extends wider, inner flipper tucks/brakes
