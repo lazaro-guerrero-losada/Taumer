@@ -2421,6 +2421,7 @@
           pivotX: 0,
           pivotY: 0,
           isWaiting: false,
+          waitTimer: 0,
           flipperLeftActivity: 1.0,
           flipperRightActivity: 1.0,
           targetLeft: 1.0,
@@ -2631,11 +2632,11 @@
         const ny = fx;
 
         // Danger reach: threshold to enter close avoidance / pivot
-        const dangerReach = L * 0.90 + 22;
-        const dangerHalfWidth = L * 0.35 + 12;
+        const dangerReach = L * 0.82 + 18;
+        const dangerHalfWidth = L * 0.35 + 10;
         // Clear reach: threshold with hysteresis to exit pivot or waiting
-        const clearReach = L * 1.25 + 40;
-        const clearHalfWidth = L * 0.40 + 20;
+        const clearReach = L * 0.98 + 22;
+        const clearHalfWidth = L * 0.38 + 15;
 
         let obstacleDetected = false;
         let blockLat = 0;
@@ -2668,50 +2669,70 @@
 
         // ── 4. EDGE-TRAPPED PROTOCOL ("para afuera no puede ir, y para adentro está la otra") ──
         const edgeDist = Math.min(hx, W - hx, hy, H - hy);
-        const isNearEdgeZone = edgeDist < pad + 35;
+        const isNearWall = edgeDist < 65; // ACTUALLY touching or very close to wall
         let isTrappedAtEdge = false;
 
-        if (obstacleDetected && isNearEdgeZone) {
-          // Obstacle is at blockLat. To steer away from it, steer towards opposite side:
-          const desiredPivotDir = blockLat >= 0 ? -1 : 1;
-          const testHeading = t.heading + desiredPivotDir * 0.50;
-          const testX = hx + Math.cos(testHeading) * 85;
-          const testY = hy + Math.sin(testHeading) * 85;
-          const testEdgeDist = Math.min(testX, W - testX, testY, H - testY);
+        if (obstacleDetected && isNearWall && blockOther) {
+          const otherEdgeDist = Math.min(
+            blockOther.nodes[0], W - blockOther.nodes[0],
+            blockOther.nodes[1], H - blockOther.nodes[1]
+          );
+          // Strict hierarchy: Only wait if THIS turtle is genuinely closer to the wall than the other
+          if (edgeDist < otherEdgeDist - 12) {
+            const desiredPivotDir = blockLat >= 0 ? -1 : 1;
+            const testHeading = t.heading + desiredPivotDir * 0.40;
+            const testX = hx + Math.cos(testHeading) * 75;
+            const testY = hy + Math.sin(testHeading) * 75;
+            const testEdgeDist = Math.min(testX, W - testX, testY, H - testY);
 
-          // If turning away from obstacle points into or stays pinned to the boundary:
-          if (testEdgeDist < 75 || (testEdgeDist < edgeDist && testEdgeDist < 110)) {
-            isTrappedAtEdge = true;
+            // If turning away from obstacle points into or stays pinned to the boundary:
+            if (testEdgeDist < 35 || testEdgeDist < edgeDist) {
+              isTrappedAtEdge = true;
+            }
           }
         }
 
-        if (isTrappedAtEdge) {
-          // TRAPPED AT BOUNDARY: Pinned turtle stops and waits patiently until the other clears
+        // Safety timeout: max 2.8s waiting so a turtle NEVER stays stuck forever!
+        if (isTrappedAtEdge && t.waitTimer < 2.8) {
           t.isWaiting = true;
+          t.waitTimer += dt;
           t.isPivoting = false;
           t.pivotTimer = 0;
 
-          // The other turtle realizes: "huy voy a intentar no molestar" -> steers inward to clear space!
-          if (blockOther && !blockOther.isWaiting) {
-            const toCenterX = (W * 0.5) - blockOther.nodes[0];
-            const toCenterY = (H * 0.5) - blockOther.nodes[1];
-            blockOther.targetHeading = Math.atan2(toCenterY, toCenterX);
+          // The other turtle (in open water) MUST NOT WAIT; it steers away with wide clearance!
+          if (blockOther) {
+            blockOther.isWaiting = false;
+            blockOther.waitTimer = 0;
+
+            const otherFx = Math.cos(blockOther.heading);
+            const otherFy = Math.sin(blockOther.heading);
+            const otherNx = -otherFy;
+            const otherNy = otherFx;
+            const relX = hx - blockOther.nodes[0];
+            const relY = hy - blockOther.nodes[1];
+            const latFromOther = relX * otherNx + relY * otherNy;
+            const passDir = latFromOther >= 0 ? -1 : 1;
+
+            blockOther.targetHeading = blockOther.heading + passDir * 0.35;
             blockOther.isTurning = true;
-            blockOther.turnCooldown = 3.5;
-            blockOther.targetLeft = 1.0;
-            blockOther.targetRight = 1.0;
-            blockOther.speed = Math.max(blockOther.speed, 26);
+            blockOther.turnCooldown = 3.0;
+            blockOther.targetLeft = passDir > 0 ? 1.0 : 0.40;
+            blockOther.targetRight = passDir > 0 ? 0.40 : 1.0;
+            blockOther.speed = Math.max(blockOther.speed, 22);
           }
-        } else if (t.isWaiting && !obstacleDetected) {
-          // Obstacle has cleared! Resume swimming towards ocean center
-          t.isWaiting = false;
-          t.targetLeft = 1.0;
-          t.targetRight = 1.0;
-          t.turnCooldown = 1.5;
-          const toCenterX = (W * 0.5) - hx;
-          const toCenterY = (H * 0.5) - hy;
-          t.targetHeading = Math.atan2(toCenterY, toCenterX);
-          t.isTurning = true;
+        } else {
+          // If not trapped, or if wait timer exceeded 2.8s, break wait state and resume!
+          if (t.isWaiting) {
+            t.isWaiting = false;
+            t.waitTimer = 0;
+            t.targetLeft = 1.0;
+            t.targetRight = 1.0;
+            t.turnCooldown = 2.0;
+            const toCenterX = (W * 0.5) - hx;
+            const toCenterY = (H * 0.5) - hy;
+            t.targetHeading = Math.atan2(toCenterY, toCenterX);
+            t.isTurning = true;
+          }
         }
 
         // ── 5. FLIPPER PIVOT / WAIT / CRUISE STATE MACHINE ──
@@ -2741,31 +2762,27 @@
             prevAngle = angle;
           }
         } else if (obstacleDetected && !t.isPivoting) {
-          // If the obstacle in front is waiting at the wall, steer away towards open water!
-          if (blockOther && blockOther.isWaiting) {
+          // Normal open-water avoidance: steer smoothly around the obstacle!
+          t.isPivoting = true;
+          t.pivotTimer = 2.0; // Commit to turning maneuver for 2.0s
+
+          if (Math.abs(blockLat) < 12) {
             const toCenterX = (W * 0.5) - hx;
             const toCenterY = (H * 0.5) - hy;
-            t.targetHeading = Math.atan2(toCenterY, toCenterX);
-            t.isTurning = true;
-            t.turnCooldown = 3.5;
-            t.targetLeft = 1.0;
-            t.targetRight = 1.0;
-            t.speed = Math.max(t.speed, 26);
+            const toCenterLat = toCenterX * nx + toCenterY * ny;
+            t.pivotDir = toCenterLat >= 0 ? 1 : -1;
           } else {
-            // Normal open-water pivot: Lock in direction once and commit!
-            t.isPivoting = true;
-            t.pivotTimer = 2.0; // Commit to turning maneuver for 2.0s
-            t.pivotDir = blockLat >= 0 ? -1 : 1; // Steer away from obstacle
+            t.pivotDir = blockLat >= 0 ? -1 : 1; // Steer AWAY from obstacle!
+          }
 
-            if (t.pivotDir > 0) {
-              // Turning RIGHT: paddle with LEFT flipper, brake with RIGHT flipper!
-              t.targetLeft = 1.0;
-              t.targetRight = 0.15;
-            } else {
-              // Turning LEFT: paddle with RIGHT flipper, brake with LEFT flipper!
-              t.targetLeft = 0.15;
-              t.targetRight = 1.0;
-            }
+          if (t.pivotDir > 0) {
+            // Turning RIGHT: paddle with LEFT flipper, brake with RIGHT flipper!
+            t.targetLeft = 1.0;
+            t.targetRight = 0.15;
+          } else {
+            // Turning LEFT: paddle with RIGHT flipper, brake with LEFT flipper!
+            t.targetLeft = 0.15;
+            t.targetRight = 1.0;
           }
         }
 
@@ -2892,6 +2909,43 @@
         // Smoothly lerps activity to eliminate any sudden visual popping
         t.flipperLeftActivity += (t.targetLeft - t.flipperLeftActivity) * Math.min(1, dt * 5.0);
         t.flipperRightActivity += (t.targetRight - t.flipperRightActivity) * Math.min(1, dt * 5.0);
+      }
+
+      // ── 7. RIGID CARAPACE SEPARATION CUSHION (ZERO OVERLAP / "NUNCA SE COMEN") ──
+      for (let i = 0; i < N; i++) {
+        const ti = turtles[i];
+        const cxi = ti.nodes[6 * 2];
+        const cyi = ti.nodes[6 * 2 + 1];
+        const radI = ti.length * 0.28;
+
+        for (let j = i + 1; j < N; j++) {
+          const tj = turtles[j];
+          const cxj = tj.nodes[6 * 2];
+          const cyj = tj.nodes[6 * 2 + 1];
+          const radJ = tj.length * 0.28;
+
+          const dx = cxj - cxi;
+          const dy = cyj - cyi;
+          const dist = Math.hypot(dx, dy) || 1e-3;
+          const minDist = radI + radJ + 14; // Solid shell clearance
+
+          if (dist < minDist) {
+            const overlap = minDist - dist;
+            const nx = dx / dist;
+            const ny = dy / dist;
+
+            // If one turtle is waiting, the moving turtle absorbs the displacement; otherwise share 50/50
+            const pushI = tj.isWaiting ? 1.0 : (ti.isWaiting ? 0.0 : 0.5);
+            const pushJ = ti.isWaiting ? 1.0 : (tj.isWaiting ? 0.0 : 0.5);
+
+            for (let k = 0; k < TURTLE_NODES; k++) {
+              ti.nodes[k * 2] -= nx * overlap * pushI;
+              ti.nodes[k * 2 + 1] -= ny * overlap * pushI;
+              tj.nodes[k * 2] += nx * overlap * pushJ;
+              tj.nodes[k * 2 + 1] += ny * overlap * pushJ;
+            }
+          }
+        }
       }
     }
 
