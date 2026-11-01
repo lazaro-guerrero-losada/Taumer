@@ -1460,7 +1460,7 @@
       this.cols = 0;
       this.rows = 0;
       this.time = 0;
-      this.genInterval = 0.38; // Calm, relaxing slow-motion evolution cadence
+      this.genInterval = 0.22; // Responsive, fluid generation evolution cadence
       this.genTimer = 0.0;     // Synchronous generation evolution clock
       this.generation = 0;
       this.directorTimer = 0;
@@ -1468,14 +1468,10 @@
       // ── PROGRESSIVE POPULATION EBB & FLOW (EXPANSION & CONTRACTION) ──
       // In Conway's Game of Life, life propagates and moves across space through oscillators,
       // moving gliders and spaceships (LWSS/MWSS/HWSS), and dynamic methuselah reactions.
-      // When density reaches max threshold (~6.8%), the environment gently inverts to "shrink":
-      // births become slightly harder (probabilistic) and over-dense clusters thin out,
-      // creating a very slow, calm, relaxing contraction until reaching min threshold (~1.6%).
-      // In both phases, gliders and moving spaceships continuously traverse the open space,
-      // and static frozen blocks slowly dissolve or re-awaken into gliders so the screen never stagnates!
+      // Balanced density thresholds maintain a vibrant, active ecosystem with minimal blank space:
       this.ecoPhase = "grow"; // "grow" or "shrink"
-      this.maxDensityThreshold = 0.068; // Lower ceiling for spacious airy canvas (~6.8%)
-      this.minDensityThreshold = 0.016; // Lower floor (~1.6%)
+      this.maxDensityThreshold = 0.20; // Vibrant upper ceiling (~20%)
+      this.minDensityThreshold = 0.065; // Balanced floor (~6.5%)
 
       this.alive = new Uint8Array(0);
       this.nextAlive = new Uint8Array(0);
@@ -1599,6 +1595,27 @@
       }
     }
 
+    stampSoup(c0, r0, w = 7, h = 7, density = 0.42, strainId = 0) {
+      const { cols, rows, alive, age, strain, fade, cellGrowth } = this;
+      if (!cols || !rows) return;
+      const hw = Math.floor(w / 2);
+      const hh = Math.floor(h / 2);
+      for (let dr = -hh; dr <= hh; dr++) {
+        for (let dc = -hw; dc <= hw; dc++) {
+          if (hash3(c0 + dc, r0 + dr, (strainId + 1) * 31) < density) {
+            const c = this.wrapCol(c0 + dc);
+            const r = this.wrapRow(r0 + dr);
+            const idx = r * cols + c;
+            alive[idx] = 1;
+            age[idx] = 1;
+            strain[idx] = strainId & 3;
+            fade[idx] = 1.0;
+            if (cellGrowth) cellGrowth[idx] = 1.0;
+          }
+        }
+      }
+    }
+
     seedEcosystem(fullReset = true) {
       const { cols, rows, cw, ch } = this;
       if (!cols || !rows) return;
@@ -1610,18 +1627,51 @@
         if (this.cellGrowth) this.cellGrowth.fill(0);
       }
 
-      // Airy, open initial ecosystem: dynamic moving gliders and spaceships + oscillators
-      // leaving spacious negative room across the canvas
-      // 1. Moving gliders traveling across quadrants
-      this.stampPattern("glider", Math.round(cols * 0.22), Math.round(rows * 0.24), 0, false, false, false);
-      this.stampPattern("glider", Math.round(cols * 0.78), Math.round(rows * 0.72), 1, true, true, false);
-      this.stampPattern("glider", Math.round(cols * 0.76), Math.round(rows * 0.22), 2, true, false, false);
+      // ── DENSE, VIBRANT MULTI-COLONY ECOSYSTEM ──
+      // Combines endless glider streams, grand oscillators, long-running methuselahs,
+      // moving spaceship flotillas, and primordial soup clusters across the entire grid:
 
-      // 2. Moving lightweight spaceships (LWSS) traveling horizontally
-      this.stampPattern("lwss", Math.round(cols * 0.18), Math.round(rows * 0.65), 3, false, false, false);
+      // 1. Continuous Glider Gun (streams moving gliders diagonally across the screen)
+      if (cols >= 44 && rows >= 20) {
+        this.stampPattern("gosper_gun", Math.round(cols * 0.16), Math.round(rows * 0.18), 0, false, false, false);
+      }
 
-      // 3. Evolving methuselah that naturally produces gliders and active motion
-      this.stampPattern("r_pentomino", Math.round(cols * 0.50), Math.round(rows * 0.38), 0, false, false, false);
+      // 2. Long-Running Dynamic Methuselahs (bursting into rich life for thousands of steps)
+      this.stampPattern("acorn", Math.round(cols * 0.32), Math.round(rows * 0.65), 1, false, false, false);
+      this.stampPattern("r_pentomino", Math.round(cols * 0.70), Math.round(rows * 0.40), 2, false, false, false);
+      this.stampPattern("diehard", Math.round(cols * 0.50), Math.round(rows * 0.82), 3, false, false, false);
+      this.stampPattern("r_pentomino", Math.round(cols * 0.85), Math.round(rows * 0.72), 0, true, false, false);
+
+      // 3. Spectacular Grand Oscillators (rhythmic breathing and rotation)
+      this.stampPattern("pulsar", Math.round(cols * 0.52), Math.round(rows * 0.50), 1, false, false, false);
+      this.stampPattern("koks_galaxy", Math.round(cols * 0.82), Math.round(rows * 0.20), 2, false, false, false);
+      this.stampPattern("pentadecathlon", Math.round(cols * 0.26), Math.round(rows * 0.80), 3, false, false, false);
+
+      // 4. Moving Spaceship Squadrons (horizontal deep-space cruisers)
+      this.stampPattern("lwss", Math.round(cols * 0.10), Math.round(rows * 0.38), 0, false, false, false);
+      this.stampPattern("lwss", Math.round(cols * 0.88), Math.round(rows * 0.58), 1, true, false, false);
+      this.stampPattern("mwss", Math.round(cols * 0.60), Math.round(rows * 0.14), 2, false, false, false);
+      this.stampPattern("mwss", Math.round(cols * 0.38), Math.round(rows * 0.90), 3, true, false, false);
+
+      // 5. Active Glider Fleets traveling diagonally across quadrants
+      this.stampPattern("glider", Math.round(cols * 0.24), Math.round(rows * 0.26), 0, false, false, false);
+      this.stampPattern("glider", Math.round(cols * 0.76), Math.round(rows * 0.70), 1, true, true, false);
+      this.stampPattern("glider", Math.round(cols * 0.78), Math.round(rows * 0.24), 2, true, false, false);
+      this.stampPattern("glider", Math.round(cols * 0.22), Math.round(rows * 0.72), 3, false, true, false);
+
+      // 6. Generative Primordial Soup Patches (instantly ignite into organic blinkers, toads & gliders)
+      const soupCenters = [
+        [0.15, 0.60],
+        [0.38, 0.24],
+        [0.64, 0.78],
+        [0.86, 0.36],
+        [0.44, 0.38],
+        [0.72, 0.84],
+      ];
+      for (let s = 0; s < soupCenters.length; s++) {
+        const [sc, sr] = soupCenters[s];
+        this.stampSoup(Math.round(cols * sc), Math.round(rows * sr), 7, 7, 0.42, s & 3);
+      }
 
       // Subtle background coordinate markers for ambient depth
       this.ambientNodes = [];
@@ -1891,7 +1941,7 @@
       this.directorTimer += dt;
       if (this.directorTimer >= 1.4) {
         this.directorTimer = 0;
-        const minEmergencyLive = Math.max(12, Math.round(n * 0.003));
+        const minEmergencyLive = Math.max(40, Math.round(n * 0.035));
 
         if (liveTotal < minEmergencyLive) {
           this.ecoPhase = "grow";
@@ -1911,7 +1961,7 @@
               nextAlive[i] = 0;
               age[i] = 0;
               fade[i] = 0.45;
-            } else if (h > 0.988 && density < this.maxDensityThreshold * 0.8) {
+            } else if (h > 0.985 && density < this.maxDensityThreshold * 0.8) {
               const c = i % cols;
               const r = (i / cols) | 0;
               this.stampPattern("glider", c, r, (strain[i] + 1) & 3, Math.random() < 0.5, Math.random() < 0.5);
@@ -1919,14 +1969,14 @@
           }
         }
 
-        if (births < 3 || activeMoving < 10) {
+        if (births < 5 || activeMoving < 18) {
           this.stagnantSteps++;
         } else {
           this.stagnantSteps = Math.max(0, this.stagnantSteps - 1);
         }
 
         // If the window gets quiet or empty in one area, launch a moving glider across open space
-        if (this.ecoPhase === "grow" && (this.stagnantSteps >= 5 || (this.generation % 20 === 0 && activeMoving < 18)) && density < this.maxDensityThreshold * 0.7) {
+        if (this.ecoPhase === "grow" && (this.stagnantSteps >= 4 || (this.generation % 16 === 0 && activeMoving < 28)) && density < this.maxDensityThreshold * 0.75) {
           this.stagnantSteps = 0;
           const spot = this.findOpenSpot();
           this.stampPattern("glider", spot.c, spot.r, (this.nextStrainCycle++) & 3, Math.random() < 0.5, Math.random() < 0.5);
