@@ -1373,6 +1373,7 @@ class SettingsDialog(Gtk.Window):
 
         self.bg_themes = [
             ("sharks", "◈ Sharks", "Classic ocean sharks (Hammerhead, Thresher, Mako) swimming with schooling fish."),
+            ("birds", "🪶 Migrating Birds", "Flocks of birds (Canada Geese, Cranes, Ibises, Swifts) flying in V-formation across drifting clouds."),
             ("turtles", "🐢 Sea Turtles", "Graceful sea turtles (Loggerhead, Green, Olive Ridley, Hawksbill) cruising the reef."),
             ("mantas", "◇ Manta Rays", "Graceful oceanic manta & spotted eagle rays gliding with undulating wings."),
             ("jellyfish", "◎ Jellyfish", "Rhythmic deep-sea pulsing jellyfish bells with flowing tentacles & plankton."),

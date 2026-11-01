@@ -3806,6 +3806,493 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 6. FLYING BIRDS IN V-FORMATION ENGINE ("birds" / "v_birds")
+  //    Migrating bird flocks flying smoothly upwards from down to top (-Y).
+  //    Organized into realistic V-formations (skeins) with species:
+  //    - Canada Geese (classic black head & white cheek, brownish body)
+  //    - Sandhill Cranes (long outstretched neck & trailing legs, slate gray)
+  //    - Glossy / Scarlet Ibises (curved slender decurved beak & wingtips)
+  //    - Alpine Swifts (agile swept scythe-like crescent wings, dark brown)
+  //    Atmospheric drifting ASCII clouds in the background moving top to down (+Y)
+  //    at a distinct parallax velocity, with birds sharply rendered in front.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const BIRD_SPECIES = {
+    goose: {
+      name: "Canada Goose",
+      wingSpan: 24,
+      bodyLen: 18,
+      neckLen: 9,
+      wingStyle: "broad",
+      wingBeatSpeed: 2.8,
+      glideRatio: 0.35,
+      color: "rgba(45, 40, 35, 0.88)",
+      accentColor: "#f8fafc", // White cheek patch
+      secondaryColor: "rgba(100, 90, 80, 0.75)",
+    },
+    crane: {
+      name: "Sandhill Crane",
+      wingSpan: 30,
+      bodyLen: 22,
+      neckLen: 14,
+      legLen: 12,
+      wingStyle: "plumed",
+      wingBeatSpeed: 2.2,
+      glideRatio: 0.50,
+      color: "rgba(75, 85, 95, 0.85)", // Slate gray
+      accentColor: "#dc2626", // Red crown cap
+      secondaryColor: "rgba(148, 163, 184, 0.70)",
+    },
+    ibis: {
+      name: "Glossy Ibis",
+      wingSpan: 20,
+      bodyLen: 15,
+      neckLen: 8,
+      curvedBeak: true,
+      wingBeatSpeed: 3.4,
+      glideRatio: 0.28,
+      color: "rgba(78, 42, 38, 0.88)", // Deep bronze/chestnut
+      accentColor: "#38bdf8", // Subtle iridescent sheen
+      secondaryColor: "rgba(110, 60, 50, 0.75)",
+    },
+    swift: {
+      name: "Alpine Swift",
+      wingSpan: 18,
+      bodyLen: 12,
+      neckLen: 4,
+      wingStyle: "crescent",
+      wingBeatSpeed: 4.8,
+      glideRatio: 0.60,
+      color: "rgba(30, 41, 59, 0.90)", // Dark slate-charcoal
+      accentColor: "#f1f5f9", // White breast throat
+      secondaryColor: "rgba(71, 85, 105, 0.75)",
+    },
+  };
+
+  const CLOUD_DENSITY_GLYPHS = [" ", "·", ".", ":", "*", "%", "#", "@"];
+
+  class BirdWorld {
+    constructor() {
+      this.width = 0;
+      this.height = 0;
+      this.time = 0;
+      this.flocks = [];
+      this.clouds = [];
+      this.events = [];
+      this.pointer = { x: 0, y: 0, active: false };
+
+      // Background clouds velocity: drifting downwards from top to down (+Y)
+      this.cloudSpeed = 16; // px/sec down
+
+      // Birds fly upwards from down to top (-Y)
+      this.birdFlightSpeed = 52; // px/sec up
+      this.flockSpawnTimer = 1.0;
+    }
+
+    resize(width, height) {
+      const first = this.width === 0;
+      this.width = width;
+      this.height = height;
+
+      if (first || this.clouds.length === 0) {
+        this.seedClouds();
+      }
+      if (first || this.flocks.length === 0) {
+        this.seedFlocks();
+      }
+    }
+
+    seedClouds() {
+      this.clouds = [];
+      const count = clamp(Math.round((this.width * this.height) / 38000), 12, 26);
+      for (let i = 0; i < count; i++) {
+        this.clouds.push({
+          x: rand(0, this.width),
+          y: rand(0, this.height),
+          rx: rand(65, 160),
+          ry: rand(28, 65),
+          density: rand(0.35, 0.75),
+          driftX: rand(-3.5, 3.5),
+          speedY: rand(11, 20), // Top to down
+          puffPhase: rand(0, TAU),
+        });
+      }
+    }
+
+    createFlock(speciesKey, apexX, apexY, birdCount = 9) {
+      const sp = BIRD_SPECIES[speciesKey] || BIRD_SPECIES.goose;
+      const birds = [];
+      const vAngle = rand(0.55, 0.75); // Half-angle of the V formation (~35 to 43 deg)
+      const spacing = sp.wingSpan * rand(1.35, 1.75);
+
+      // Apex bird (leader at position 0)
+      birds.push({
+        relX: 0,
+        relY: 0,
+        wingPhase: 0,
+        wingPhaseOffset: 0,
+        lag: 0,
+        size: 1.05,
+      });
+
+      // Left and right arms of the V-skein
+      const pairs = Math.floor((birdCount - 1) / 2);
+      for (let p = 1; p <= pairs; p++) {
+        const dist = p * spacing;
+        const phaseLag = p * 0.28; // Aerodynamic wingtip vortex phase coordination!
+
+        // Left wing bird
+        birds.push({
+          relX: -Math.sin(vAngle) * dist + rand(-4, 4),
+          relY: Math.cos(vAngle) * dist + rand(-3, 3),
+          wingPhase: -phaseLag,
+          wingPhaseOffset: rand(-0.1, 0.1),
+          lag: p,
+          size: rand(0.92, 1.02),
+        });
+
+        // Right wing bird
+        birds.push({
+          relX: Math.sin(vAngle) * dist + rand(-4, 4),
+          relY: Math.cos(vAngle) * dist + rand(-3, 3),
+          wingPhase: -phaseLag - 0.1,
+          wingPhaseOffset: rand(-0.1, 0.1),
+          lag: p,
+          size: rand(0.92, 1.02),
+        });
+      }
+
+      return {
+        species: speciesKey,
+        apexX,
+        apexY,
+        vx: rand(-6, 6),
+        vy: -rand(45, 62), // Flying upwards (down to top)
+        birds,
+        bobPhase: rand(0, TAU),
+        formationDrift: rand(-0.15, 0.15),
+      };
+    }
+
+    seedFlocks() {
+      this.flocks = [];
+      const keys = Object.keys(BIRD_SPECIES);
+      // Spawn 2 initial flocks in view
+      const f1 = this.createFlock(keys[0], this.width * 0.35, this.height * 0.65, 9);
+      const f2 = this.createFlock(keys[1], this.width * 0.72, this.height * 1.05, 11);
+      this.flocks.push(f1, f2);
+    }
+
+    splash(x, y) {
+      this.events.push({ kind: "pulse", x, y });
+      // Clapping / clicking startles nearby birds, making them flare wings and bank slightly
+      for (const flock of this.flocks) {
+        const dx = flock.apexX - x;
+        const dy = flock.apexY - y;
+        const d = Math.hypot(dx, dy);
+        if (d < 220) {
+          const steer = dx > 0 ? 16 : -16;
+          flock.vx += steer;
+          flock.vy -= 14;
+        }
+      }
+    }
+
+    step(dt) {
+      this.time += dt;
+      const { width: W, height: H } = this;
+      if (!W || !H) return;
+
+      // ── 1. BACKGROUND CLOUDS DRIFTING FROM TOP TO DOWN (+Y) ──
+      for (const c of this.clouds) {
+        c.y += c.speedY * dt;
+        c.x += c.driftX * dt;
+        if (c.y - c.ry > H + 40) {
+          c.y = -c.ry - 20;
+          c.x = rand(0, W);
+        }
+        if (c.x < -c.rx - 20) c.x = W + c.rx + 20;
+        else if (c.x > W + c.rx + 20) c.x = -c.rx - 20;
+      }
+
+      // ── 2. FLOCKS FLYING UPWARDS FROM DOWN TO TOP (-Y) ──
+      for (let i = this.flocks.length - 1; i >= 0; i--) {
+        const f = this.flocks[i];
+        const sp = BIRD_SPECIES[f.species] || BIRD_SPECIES.goose;
+
+        f.apexX += f.vx * dt;
+        f.apexY += f.vy * dt;
+        f.bobPhase += dt * 1.2;
+
+        // Gentle sinuous migratory path
+        f.vx += Math.sin(this.time * 0.4 + f.bobPhase) * 2.2 * dt;
+        f.vx = clamp(f.vx, -15, 15);
+
+        // Advance wing flap kinematics for each bird in the V
+        for (const b of f.birds) {
+          b.wingPhase += dt * sp.wingBeatSpeed;
+        }
+
+        // Check if entire formation has migrated off the top screen
+        let allPastTop = true;
+        for (const b of f.birds) {
+          if (f.apexY + b.relY > -80) {
+            allPastTop = false;
+            break;
+          }
+        }
+        if (allPastTop) {
+          this.flocks.splice(i, 1);
+        }
+      }
+
+      // ── 3. SPAWN NEW MIGRATORY SKEINS AT THE BOTTOM (+Y) ──
+      this.flockSpawnTimer -= dt;
+      if (this.flockSpawnTimer <= 0) {
+        this.flockSpawnTimer = rand(10, 18);
+        const keys = Object.keys(BIRD_SPECIES);
+        const spKey = keys[Math.floor(Math.random() * keys.length)];
+        const birdCount = Math.floor(rand(7, 13));
+        // Spawn at bottom (below view) heading upwards
+        const apexX = rand(W * 0.18, W * 0.82);
+        const apexY = H + 80;
+        this.flocks.push(this.createFlock(spKey, apexX, apexY, birdCount));
+      }
+    }
+  }
+
+  class BirdRenderer extends BaseAsciiRenderer {
+    constructor(canvas) {
+      super(canvas, Object.keys(BIRD_SPECIES), {});
+      this.ambientGlyph = "·";
+    }
+
+    render(world, dt) {
+      const { ctx, dpr, cols, ch } = this;
+      if (cols === 0) return;
+      const t = world.time;
+
+      this.consumeEvents(world);
+      this.diffuse(dt);
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.bg, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      this.drawDots();
+
+      ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      // 1. Draw atmospheric background drifting clouds (TOP -> DOWN)
+      this.drawClouds(world, t);
+
+      // 2. Draw migrating bird formations upfront (DOWN -> TOP)
+      this.drawBirdFlocks(world, t);
+    }
+
+    drawClouds(world, t) {
+      const { ctx, cols, rows, cw, ch } = this;
+      for (let r = 0; r < rows; r++) {
+        const py = (r + 0.5) * ch;
+        for (let c = 0; c < cols; c++) {
+          const px = (c + 0.5) * cw;
+
+          // Sample cloud density from all drifting clouds
+          let density = 0;
+          for (const cl of world.clouds) {
+            const dx = (px - cl.x) / cl.rx;
+            const dy = (py - cl.y) / cl.ry;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < 1.0) {
+              const puff = 0.12 * Math.sin(px * 0.02 + py * 0.03 + cl.puffPhase);
+              const falloff = Math.pow(1 - Math.sqrt(d2), 1.6);
+              density += cl.density * (falloff + puff);
+            }
+          }
+
+          if (density > 0.08) {
+            const dClamped = clamp(density, 0, 1);
+            const gIdx = Math.min(
+              CLOUD_DENSITY_GLYPHS.length - 1,
+              Math.floor(dClamped * CLOUD_DENSITY_GLYPHS.length)
+            );
+            const glyph = CLOUD_DENSITY_GLYPHS[gIdx];
+            if (glyph !== " ") {
+              // Soft ethereal cloud opacity fading cleanly into white background
+              const alpha = clamp(dClamped * 0.32, 0.08, 0.34).toFixed(3);
+              ctx.fillStyle = `rgba(148, 163, 184, ${alpha})`;
+              ctx.fillText(glyph, px, py + 1);
+            }
+          }
+        }
+      }
+    }
+
+    drawBirdFlocks(world, t) {
+      const { ctx } = this;
+
+      for (const f of world.flocks) {
+        const sp = BIRD_SPECIES[f.species] || BIRD_SPECIES.goose;
+
+        for (const b of f.birds) {
+          const bx = f.apexX + b.relX;
+          const by = f.apexY + b.relY;
+
+          // Check if bird is within canvas viewport bounds (+ padding)
+          if (bx < -40 || bx > world.width + 40 || by < -40 || by > world.height + 40) continue;
+
+          // Wing stroke position: [-1 = wings fully down, +1 = wings fully up]
+          const wingFlap = Math.sin(b.wingPhase + b.wingPhaseOffset);
+          const isGliding = Math.abs(wingFlap) < 0.18;
+
+          ctx.save();
+          ctx.translate(bx, by);
+
+          // Flight direction: pointing upwards towards -Y with slight lateral drift
+          const flightAngle = Math.atan2(f.vy, f.vx) + Math.PI / 2;
+          ctx.rotate(flightAngle);
+          ctx.scale(b.size, b.size);
+
+          ctx.fillStyle = sp.color;
+
+          if (f.species === "crane") {
+            // Sandhill Crane: long outstretched neck forward, long legs trailing backward, broad wings
+            ctx.fillStyle = sp.color;
+            // Outstretched neck & head
+            ctx.fillText("|", 0, -11);
+            ctx.fillText("^", 0, -16);
+            // Red crown dot
+            ctx.fillStyle = sp.accentColor;
+            ctx.fillText("·", 0, -14);
+
+            // Body
+            ctx.fillStyle = sp.color;
+            ctx.fillText("#", 0, -4);
+            ctx.fillText("8", 0, 2);
+
+            // Trailing legs
+            ctx.fillStyle = sp.secondaryColor;
+            ctx.fillText("!", 0, 8);
+            ctx.fillText(":", 0, 14);
+
+            // Large plumed flapping wings
+            ctx.fillStyle = sp.color;
+            if (wingFlap > 0.25) {
+              // Wings swept upward
+              ctx.fillText("\\\\", -8, -6);
+              ctx.fillText("//", 8, -6);
+              ctx.fillText("\\", -14, -10);
+              ctx.fillText("/", 14, -10);
+            } else if (wingFlap < -0.25) {
+              // Wings pushed downward
+              ctx.fillText("//", -8, 2);
+              ctx.fillText("\\\\", 8, 2);
+              ctx.fillText("/", -14, 6);
+              ctx.fillText("\\", 14, 6);
+            } else {
+              // Gliding flat wings
+              ctx.fillText("==", -8, -2);
+              ctx.fillText("==", 8, -2);
+              ctx.fillText("-", -14, -2);
+              ctx.fillText("-", 14, -2);
+            }
+          } else if (f.species === "swift") {
+            // Alpine Swift: sleek aerodynamic scythe-crescent wings, ultra fast
+            ctx.fillStyle = sp.accentColor;
+            ctx.fillText("o", 0, -6); // White throat
+            ctx.fillStyle = sp.color;
+            ctx.fillText("v", 0, 0);  // Streamlined body
+
+            if (wingFlap > 0.2) {
+              ctx.fillText("(", -6, -4);
+              ctx.fillText(")", 6, -4);
+              ctx.fillText("'", -10, -7);
+              ctx.fillText("`", 10, -7);
+            } else if (wingFlap < -0.2) {
+              ctx.fillText(")", -6, 2);
+              ctx.fillText("(", 6, 2);
+              ctx.fillText("`", -10, 5);
+              ctx.fillText("'", 10, 5);
+            } else {
+              ctx.fillText("~", -6, -1);
+              ctx.fillText("~", 6, -1);
+              ctx.fillText("-", -11, -2);
+              ctx.fillText("-", 11, -2);
+            }
+          } else if (f.species === "ibis") {
+            // Glossy Ibis: slender decurved bill, bronze feathers
+            ctx.fillStyle = sp.color;
+            ctx.fillText(")", 0, -11); // Curved slender beak
+            ctx.fillText("o", 0, -6);
+            ctx.fillText("S", 0, 0);
+
+            // Wing flaps
+            if (wingFlap > 0.2) {
+              ctx.fillText("\\", -6, -4);
+              ctx.fillText("/", 6, -4);
+              ctx.fillText("^", -11, -7);
+              ctx.fillText("^", 11, -7);
+            } else if (wingFlap < -0.2) {
+              ctx.fillText("/", -6, 2);
+              ctx.fillText("\\", 6, 2);
+              ctx.fillText("v", -11, 5);
+              ctx.fillText("v", 11, 5);
+            } else {
+              ctx.fillText("-", -6, -1);
+              ctx.fillText("-", 6, -1);
+              ctx.fillText("~", -11, -1);
+              ctx.fillText("~", 11, -1);
+            }
+          } else {
+            // Canada Goose (classic V-formation leader)
+            // Long black neck & head
+            ctx.fillStyle = sp.color;
+            ctx.fillText("o", 0, -9);
+            // White cheek patch
+            ctx.fillStyle = sp.accentColor;
+            ctx.fillText("·", 0, -7);
+
+            // Body
+            ctx.fillStyle = sp.color;
+            ctx.fillText("0", 0, -2);
+            ctx.fillText("v", 0, 4);
+
+            // Powerful broad wings
+            if (wingFlap > 0.25) {
+              ctx.fillText("\\", -6, -4);
+              ctx.fillText("/", 6, -4);
+              ctx.fillText("\\", -12, -7);
+              ctx.fillText("/", 12, -7);
+            } else if (wingFlap < -0.25) {
+              ctx.fillText("/", -6, 2);
+              ctx.fillText("\\", 6, 2);
+              ctx.fillText("/", -12, 5);
+              ctx.fillText("\\", 12, 5);
+            } else {
+              ctx.fillText("=", -6, -1);
+              ctx.fillText("=", 6, -1);
+              ctx.fillText("-", -12, -1);
+              ctx.fillText("-", 12, -1);
+            }
+          }
+
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  class BirdEngine extends BaseLoopEngine {
+    constructor(canvas) {
+      const world = new BirdWorld();
+      const renderer = new BirdRenderer(canvas);
+      super(canvas, world, renderer);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 4. PERMANENT SEA WAVES ENGINE ("waves" / "sea_waves")
   //    Gentle, perpetual ocean swell rolling fluently from top to bottom (up -> down).
   //    Features multi-harmonic lateral distortion along the X axis so waves are
@@ -4285,11 +4772,13 @@
   window.BacteriaEngine = BacteriaEngine;
   window.MantaEngine = MantaEngine;
   window.TurtleEngine = TurtleEngine;
+  window.BirdEngine = BirdEngine;
   window.SeaWaveEngine = SeaWaveEngine;
   window.SoundWaveEngine = SoundWaveEngine;
 
   const THEME_CREDITS = {
     sharks: "ASCII Sharks by stackedlol",
+    birds: "ASCII Migrating Birds in V-Formation • Canada Geese, Cranes, Ibises, Swifts",
     turtles: "ASCII Sea Turtles • Loggerhead, Green, Olive Ridley, Hawksbill",
     jellyfish: "ASCII Jellyfish • Inspired by stackedlol",
     bacteria: "ASCII Game of Life • John Horton Conway (1970)",
@@ -4314,9 +4803,12 @@
         ? "waves"
         : themeName === "turtle" || themeName === "tortuga" || themeName === "tortugas"
         ? "turtles"
+        : themeName === "bird" || themeName === "pajaros" || themeName === "aves" || themeName === "v_birds"
+        ? "birds"
         : themeName;
     const normalized = [
       "sharks",
+      "birds",
       "turtles",
       "jellyfish",
       "bacteria",
@@ -4335,7 +4827,9 @@
     }
 
     activeThemeName = normalized;
-    if (normalized === "turtles") {
+    if (normalized === "birds") {
+      activeEngine = new BirdEngine(canvas);
+    } else if (normalized === "turtles") {
       activeEngine = new TurtleEngine(canvas);
     } else if (normalized === "jellyfish") {
       activeEngine = new JellyfishEngine(canvas);
