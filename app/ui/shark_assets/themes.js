@@ -1460,7 +1460,8 @@
       this.cols = 0;
       this.rows = 0;
       this.time = 0;
-      this.genInterval = 0.44; // Calm, relaxing slow-motion evolution cadence
+      this.genInterval = 0.38; // Calm, relaxing slow-motion evolution cadence
+      this.genTimer = 0.0;     // Synchronous generation evolution clock
       this.generation = 0;
       this.directorTimer = 0;
 
@@ -1483,7 +1484,7 @@
       this.fade = new Float32Array(0);
       this.neighbors = new Uint8Array(0);
       this.cellGrowth = new Float32Array(0); // [0..1] continuous growth/bloom progress
-      this.cellTimer = new Float32Array(0);  // per-cell staggered evolution clock
+      this.cellPhase = new Float32Array(0);  // smooth spatial phase offset for breathing blooms
 
       this.liveCount = 0;
       this.birthsLastStep = 0;
@@ -1518,15 +1519,12 @@
         this.fade = new Float32Array(n);
         this.neighbors = new Uint8Array(n);
         this.cellGrowth = new Float32Array(n);
-        this.cellTimer = new Float32Array(n);
+        this.cellPhase = new Float32Array(n);
 
-        // Stagger each cell's evolution timer smoothly across the grid
-        // so every cell evolves at a different time but at the exact same slow-motion speed!
         for (let r = 0; r < newRows; r++) {
           for (let c = 0; c < newCols; c++) {
             const i = r * newCols + c;
-            const phase = ((c * 0.082 + r * 0.126 + hash3(c, r, 29) * 0.35) % 1.0 + 1.0) % 1.0;
-            this.cellTimer[i] = phase * this.genInterval;
+            this.cellPhase[i] = ((c * 0.082 + r * 0.126 + hash3(c, r, 29) * 0.35) % 1.0 + 1.0) % 1.0;
             this.cellGrowth[i] = 0.0;
           }
         }
@@ -1736,7 +1734,7 @@
     }
 
     // Conway's Game of Life laws:
-    // Cells evolve according to their 8 neighbors:
+    // Cells evolve synchronously according to their 8 neighbors:
     // - Underpopulation: < 2 neighbors dies
     // - Survival: 2 or 3 neighbors lives
     // - Overpopulation: > 3 neighbors dies
@@ -1745,12 +1743,12 @@
     // In shrink phase, parameters modulate gently and slowly to create a relaxed, gradual contraction.
     step(dt) {
       this.time += dt;
-      const { cols, rows, alive, nextAlive, age, strain, fade, cellGrowth, cellTimer, neighbors, genInterval } = this;
+      const { cols, rows, alive, nextAlive, age, strain, fade, cellGrowth, cellPhase, neighbors, genInterval } = this;
       if (!cols || !rows) return;
 
       const n = cols * rows;
-      const growSpeed = 1 / (genInterval * 0.48);
-      const fadeSpeed = 1 / (genInterval * 0.75);
+      const growSpeed = 1 / (genInterval * 0.52);
+      const fadeSpeed = 1 / (genInterval * 0.72);
       const ghostDecay = Math.exp(-dt * 1.5);
 
       let liveTotal = 0;
@@ -1787,106 +1785,105 @@
         this.spawnColonyAtGrid(spot.c, spot.r);
       }
 
-      // Parameters invert very gently during shrink phase
-      // (Survival strictness 0.78 and birth 0.65 means population decreases very slowly and calmly)
-      const isShrink = this.ecoPhase === "shrink";
-      const survivalStrictness = isShrink ? 0.78 : 1.0;
-      const birthProbability = isShrink ? 0.65 : 1.0;
+      // Synchronous generation evolution clock
+      this.genTimer += dt;
+      if (this.genTimer >= genInterval) {
+        this.genTimer -= genInterval;
+        this.generation++;
 
-      // Pre-calculate neighbor counts from current alive buffer
-      for (let r = 0; r < rows; r++) {
-        const rUp = ((r - 1 + rows) % rows) * cols;
-        const rMid = r * cols;
-        const rDn = ((r + 1) % rows) * cols;
-        for (let c = 0; c < cols; c++) {
-          const cL = (c - 1 + cols) % cols;
-          const cR = (c + 1) % cols;
-          neighbors[rMid + c] =
-            alive[rUp + cL] + alive[rUp + c] + alive[rUp + cR] +
-            alive[rMid + cL] +                 alive[rMid + cR] +
-            alive[rDn + cL] + alive[rDn + c] + alive[rDn + cR];
-        }
-      }
+        const isShrink = this.ecoPhase === "shrink";
+        const survivalStrictness = isShrink ? 0.82 : 1.0;
+        const birthProbability = isShrink ? 0.70 : 1.0;
 
-      // Staggered clock evolution: each cell evaluates its Conway neighbor rule
-      for (let i = 0; i < n; i++) {
-        cellTimer[i] += dt;
-        if (cellTimer[i] < genInterval) continue;
-        cellTimer[i] -= genInterval;
-
-        const count = neighbors[i];
-        const wasAlive = alive[i];
-
-        if (wasAlive) {
-          let survives = false;
-          if (count === 2) {
-            survives = true;
-          } else if (count === 3) {
-            survives = !isShrink || hash3(i, Math.floor(this.time * 1.5), 19) < survivalStrictness;
-          }
-
-          if (survives) {
-            nextAlive[i] = 1;
-            age[i] = Math.min(60000, age[i] + 1);
-            fade[i] = 1.0;
-          } else {
-            // Underpopulation (<2) or overpopulation (>3)
-            nextAlive[i] = 0;
-            age[i] = 0;
-            fade[i] = 0.85;
-          }
-        } else {
-          // Reproduction: exactly 3 living neighbors produces a cell!
-          if (count === 3 && (!isShrink || hash3(i, Math.floor(this.time * 1.5), 31) < birthProbability)) {
-            nextAlive[i] = 1;
-            age[i] = 1;
-            fade[i] = 1.0;
-            births++;
-
-            const c = i % cols;
-            const r = (i / cols) | 0;
-            const rUp = ((r - 1 + rows) % rows) * cols;
-            const rMid = r * cols;
-            const rDn = ((r + 1) % rows) * cols;
+        // 1. Calculate neighbor counts from the current alive buffer
+        for (let r = 0; r < rows; r++) {
+          const rUp = ((r - 1 + rows) % rows) * cols;
+          const rMid = r * cols;
+          const rDn = ((r + 1) % rows) * cols;
+          for (let c = 0; c < cols; c++) {
             const cL = (c - 1 + cols) % cols;
             const cR = (c + 1) % cols;
-            const nbIdx = [
-              rUp + cL, rUp + c, rUp + cR,
-              rMid + cL,         rMid + cR,
-              rDn + cL, rDn + c, rDn + cR,
-            ];
-            let s0 = -1, s1 = -1, s2 = -1;
-            for (let k = 0; k < 8; k++) {
-              const ni = nbIdx[k];
-              if (alive[ni]) {
-                if (s0 < 0) s0 = strain[ni];
-                else if (s1 < 0) s1 = strain[ni];
-                else { s2 = strain[ni]; break; }
-              }
-            }
-            if (s0 === s1 || s0 === s2) strain[i] = s0 >= 0 ? s0 & 3 : 0;
-            else if (s1 === s2 && s1 >= 0) strain[i] = s1 & 3;
-            else strain[i] = Math.max(0, s0) & 3;
-          } else {
-            nextAlive[i] = 0;
+            neighbors[rMid + c] =
+              alive[rUp + cL] + alive[rUp + c] + alive[rUp + cR] +
+              alive[rMid + cL] +                 alive[rMid + cR] +
+              alive[rDn + cL] + alive[rDn + c] + alive[rDn + cR];
           }
         }
-      }
 
-      // Synchronize buffer states
-      for (let i = 0; i < n; i++) {
-        alive[i] = nextAlive[i];
-      }
+        // 2. Compute next state for ALL cells based on canonical Conway laws
+        for (let i = 0; i < n; i++) {
+          const count = neighbors[i];
+          const wasAlive = alive[i];
 
-      this.birthsLastStep = births;
-      this.activeCount = activeMoving;
+          if (wasAlive) {
+            let survives = false;
+            if (count === 2) {
+              survives = true;
+            } else if (count === 3) {
+              survives = !isShrink || hash3(i, this.generation, 19) < survivalStrictness;
+            }
+
+            if (survives) {
+              nextAlive[i] = 1;
+              age[i] = Math.min(60000, age[i] + 1);
+              fade[i] = 1.0;
+            } else {
+              // Underpopulation (<2) or overpopulation (>3)
+              nextAlive[i] = 0;
+              age[i] = 0;
+              fade[i] = 0.85;
+            }
+          } else {
+            // Reproduction: exactly 3 living neighbors produces a cell!
+            if (count === 3 && (!isShrink || hash3(i, this.generation, 31) < birthProbability)) {
+              nextAlive[i] = 1;
+              age[i] = 1;
+              fade[i] = 1.0;
+              births++;
+
+              const c = i % cols;
+              const r = (i / cols) | 0;
+              const rUp = ((r - 1 + rows) % rows) * cols;
+              const rMid = r * cols;
+              const rDn = ((r + 1) % rows) * cols;
+              const cL = (c - 1 + cols) % cols;
+              const cR = (c + 1) % cols;
+              const nbIdx = [
+                rUp + cL, rUp + c, rUp + cR,
+                rMid + cL,         rMid + cR,
+                rDn + cL, rDn + c, rDn + cR,
+              ];
+              let s0 = -1, s1 = -1, s2 = -1;
+              for (let k = 0; k < 8; k++) {
+                const ni = nbIdx[k];
+                if (alive[ni]) {
+                  if (s0 < 0) s0 = strain[ni];
+                  else if (s1 < 0) s1 = strain[ni];
+                  else { s2 = strain[ni]; break; }
+                }
+              }
+              if (s0 === s1 || s0 === s2) strain[i] = s0 >= 0 ? s0 & 3 : 0;
+              else if (s1 === s2 && s1 >= 0) strain[i] = s1 & 3;
+              else strain[i] = Math.max(0, s0) & 3;
+            } else {
+              nextAlive[i] = 0;
+            }
+          }
+        }
+
+        // 3. Atomically commit generation state
+        for (let i = 0; i < n; i++) {
+          alive[i] = nextAlive[i];
+        }
+
+        this.birthsLastStep = births;
+      }
 
       // ── PERPETUAL ECOSYSTEM DIRECTOR ──
       // Prevents static locked blocks from freezing forever and keeps active gliders moving across space
       this.directorTimer += dt;
       if (this.directorTimer >= 1.4) {
         this.directorTimer = 0;
-        this.generation++;
         const minEmergencyLive = Math.max(12, Math.round(n * 0.003));
 
         if (liveTotal < minEmergencyLive) {
@@ -1896,19 +1893,18 @@
           return;
         }
 
+        const isShrink = this.ecoPhase === "shrink";
         // Dissolve or perturb very old immortal static blocks (still-lifes like 2x2 blocks or beehives)
         // so that isolated blocks do not sit idle forever on the workbench!
         for (let i = 0; i < n; i++) {
-          if (alive[i] && age[i] > 32) {
+          if (alive[i] && age[i] > 36) {
             const h = hash3(i, this.generation, 43);
-            if (isShrink ? h < 0.08 : h < 0.035) {
-              // Gently dissolve static block
+            if (isShrink ? h < 0.07 : h < 0.03) {
               alive[i] = 0;
               nextAlive[i] = 0;
               age[i] = 0;
               fade[i] = 0.45;
-            } else if (h > 0.985 && density < this.maxDensityThreshold * 0.8) {
-              // Perturb block into a moving glider
+            } else if (h > 0.988 && density < this.maxDensityThreshold * 0.8) {
               const c = i % cols;
               const r = (i / cols) | 0;
               this.stampPattern("glider", c, r, (strain[i] + 1) & 3, Math.random() < 0.5, Math.random() < 0.5);
@@ -3077,15 +3073,15 @@
   //    Gentle, perpetual ocean swell rolling fluently from top to bottom (up -> down).
   //    Features multi-harmonic lateral distortion along the X axis so waves are
   //    not straight or identical across X, but curve, undulate, ebb, and swell
-  //    organically across the sea surface. Pure monochrome/gray-slate ASCII styling.
+  //    organically across the sea surface. Deep blue ocean styling.
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const SEA_PALETTES = ["ocean_slate", "mist_slate", "deep_slate", "foam_slate"];
+  const SEA_PALETTES = ["deep_blue", "navy_swell", "cobalt_crest", "foam_cyan"];
   const SEA_TINTS = {
-    ocean_slate: [0.92, 0.95, 0.99], // Clean neutral slate-sea tint
-    mist_slate:  [0.90, 0.94, 0.98], // Soft sea-mist tint
-    deep_slate:  [0.88, 0.92, 0.97], // Deep ocean swell tint
-    foam_slate:  [0.95, 0.96, 1.00], // Crisp crest foam tint
+    deep_blue:    [0.12, 0.28, 0.62], // Deep navy/sapphire swell
+    navy_swell:   [0.18, 0.38, 0.74], // Mid-ocean cobalt swell
+    cobalt_crest: [0.26, 0.52, 0.88], // Lighter blue wave face
+    foam_cyan:    [0.60, 0.82, 0.98], // Crisp light cyan crest foam
   };
 
   const SEA_CREST_GLYPHS  = "~^≈*#@S%";
@@ -3294,37 +3290,39 @@
           const key = (hash3(c, r, 17) * 4294967295) >>> 0;
 
           if (elev > 0.74) {
-            // ── PEAK ROLLING WAVE CREST & FOAM ──
+            // ── PEAK ROLLING WAVE CREST & FOAM (Deep blue / cyan crest) ──
             const crestNorm = clamp((elev - 0.74) / 0.26, 0, 1);
-            // Soft slate-gray crest block fading into #fafbfe at edges
-            const lum = 246 - Math.round(crestNorm * 68); // ~178 (slate) to 246
-            ctx.fillStyle = `rgb(${lum - 4}, ${lum}, ${lum + 8})`;
+            // Deep blue gradient block transitioning into cyan crest
+            const br = Math.round(20 + crestNorm * 45);
+            const bg = Math.round(55 + crestNorm * 90);
+            const bb = Math.round(135 + crestNorm * 95);
+            ctx.fillStyle = `rgb(${br}, ${bg}, ${bb})`;
             ctx.fillRect(px + 1, py + 1, cw - 1, ch - 1);
 
             let glyph;
             let glyphColor;
             if (crestNorm > 0.55) {
               glyph = SEA_CREST_GLYPHS[(key >>> 5) % SEA_CREST_GLYPHS.length];
-              glyphColor = crestNorm > 0.82 ? "#f8fafc" : "#1e293b";
+              glyphColor = "#ffffff";
             } else {
               glyph = SEA_FACE_GLYPHS[(key >>> 4) % SEA_FACE_GLYPHS.length];
-              glyphColor = "#334155";
+              glyphColor = "#e0f2fe";
             }
 
             ctx.fillStyle = glyphColor;
             ctx.fillText(glyph, px + cw / 2, py + ch / 2 + 1);
           } else if (elev > 0.36) {
-            // ── SLOPING WAVE FACE (Gentle undulating slate glyphs) ──
+            // ── SLOPING WAVE FACE (Deep blue translucent undulating characters) ──
             const slopeNorm = (elev - 0.36) / 0.34;
-            const alpha = clamp(0.22 + slopeNorm * 0.48, 0.20, 0.70);
-            ctx.fillStyle = `rgba(51, 65, 85, ${alpha.toFixed(3)})`;
+            const alpha = clamp(0.35 + slopeNorm * 0.45, 0.30, 0.80);
+            ctx.fillStyle = `rgba(28, 64, 138, ${alpha.toFixed(3)})`;
             const glyph = SEA_FACE_GLYPHS[((key >>> 3) + tick) % SEA_FACE_GLYPHS.length];
             ctx.fillText(glyph, px + cw / 2, py + ch / 2 + 1);
           } else {
-            // ── TRANQUIL DEEP TROUGH (Subtle resting water specks) ──
+            // ── TRANQUIL DEEP TROUGH (Subtle resting dark navy water specks) ──
             if (((c + r) & 1) === 0) {
-              const shimmer = 0.16 + 0.08 * Math.sin(t * 0.7 + (key % 23));
-              ctx.fillStyle = `rgba(100, 116, 139, ${shimmer.toFixed(3)})`;
+              const shimmer = 0.22 + 0.12 * Math.sin(t * 0.7 + (key % 23));
+              ctx.fillStyle = `rgba(30, 58, 115, ${shimmer.toFixed(3)})`;
               const glyph = SEA_TROUGH_GLYPHS[(key >>> 2) % SEA_TROUGH_GLYPHS.length];
               ctx.fillText(glyph, px + cw / 2, py + ch / 2 + 1);
             }
@@ -3337,9 +3335,9 @@
       const { ctx } = this;
       for (const f of world.foamSpecks) {
         const elev = world.sampleElevation(f.x, f.y);
-        // Foam specks glow brighter as they ride along the crests
-        const alpha = clamp(0.35 + elev * 0.55, 0.30, 0.90);
-        ctx.fillStyle = `rgba(30, 41, 59, ${alpha.toFixed(3)})`;
+        // Foam specks glow bright cyan-white as they ride along the deep blue crests
+        const alpha = clamp(0.40 + elev * 0.55, 0.35, 0.95);
+        ctx.fillStyle = elev > 0.65 ? `rgba(224, 242, 254, ${alpha.toFixed(3)})` : `rgba(29, 78, 150, ${alpha.toFixed(3)})`;
         const glyph = elev > 0.65 ? "*" : "·";
         ctx.fillText(glyph, f.x, f.y);
       }
