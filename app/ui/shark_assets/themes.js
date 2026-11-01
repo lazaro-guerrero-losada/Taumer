@@ -4,7 +4,6 @@
 // Themes:
 //   1. "sharks"    — ASCII Sharks (window.OceanEngine in sharks.js)
 //   2. "jellyfish" — Pulsing Jellyfish (Deep Sea Zen)
-//   3. "bacteria"  — Petri Dish / Bacteria Colony (Microscopic World + Mitosis)
 //   4. "mantas"    — Manta Rays (Graceful Ocean Glide)
 
 (function () {
@@ -1355,858 +1354,6 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2. CONWAY'S GAME OF LIFE ENGINE ("bacteria" / "game_of_life")
-  //    John Horton Conway (1970) — B3/S23 Cellular Automaton
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const LIFE_STRAINS = ["cobalt_slate", "teal_slate", "violet_slate", "amber_slate"];
-  const LIFE_TINTS = {
-    cobalt_slate: [0.54, 0.65, 0.84], // Deep blueprint slate-blue
-    teal_slate:   [0.44, 0.72, 0.71], // Crisp bioluminescent slate-teal
-    violet_slate: [0.68, 0.55, 0.82], // Dusty amethyst-indigo slate
-    amber_slate:  [0.82, 0.56, 0.54], // Warm terracotta-rose slate
-  };
-
-  // Classic 1970 John Horton Conway patterns (ASCII art bitmaps)
-  const LIFE_PATTERNS = {
-    glider: [
-      ".O.",
-      "..O",
-      "OOO",
-    ],
-    lwss: [
-      ".OOOO",
-      "O...O",
-      "....O",
-      "O..O.",
-    ],
-    mwss: [
-      "...O..",
-      ".O...O",
-      "O.....",
-      "O....O",
-      "OOOOO.",
-    ],
-    r_pentomino: [
-      ".OO",
-      "OO.",
-      ".O.",
-    ],
-    acorn: [
-      ".O.....",
-      "...O...",
-      "OO..OOO",
-    ],
-    diehard: [
-      "......O.",
-      "OO......",
-      ".O...OOO",
-    ],
-    pulsar: [
-      "..OOO...OOO..",
-      ".............",
-      "O....O.O....O",
-      "O....O.O....O",
-      "O....O.O....O",
-      "..OOO...OOO..",
-      ".............",
-      "..OOO...OOO..",
-      "O....O.O....O",
-      "O....O.O....O",
-      "O....O.O....O",
-      ".............",
-      "..OOO...OOO..",
-    ],
-    koks_galaxy: [
-      "OOOOOO.OO",
-      "OOOOOO.OO",
-      ".......OO",
-      "OO.....OO",
-      "OO.....OO",
-      "OO.....OO",
-      "OO.......",
-      "OO.OOOOOO",
-      "OO.OOOOOO",
-    ],
-    pentadecathlon: [
-      "..O....O..",
-      "OO.OOOO.OO",
-      "..O....O..",
-    ],
-    gosper_gun: [
-      "........................O...........",
-      "......................O.O...........",
-      "............OO......OO............OO",
-      "...........O...O....OO............OO",
-      "OO........O.....O...OO..............",
-      "OO........O...O.OO....O.O...........",
-      "..........O.....O.......O...........",
-      "...........O...O....................",
-      "............OO......................",
-    ],
-  };
-
-  const LIFE_BIRTH_GLYPHS = "@*+O";
-  const LIFE_ACTIVE_GLYPHS = "#8X%S@";
-  const LIFE_MATURE_GLYPHS = "S%t;:";
-  const LIFE_GHOST_GLYPHS = ":;.·";
-
-  class BacteriaWorld {
-    constructor() {
-      this.width = 0;
-      this.height = 0;
-      this.cw = 12;
-      this.ch = 18;
-      this.cols = 0;
-      this.rows = 0;
-      this.time = 0;
-      this.genInterval = 0.75; // Calm, contemplative generation evolution cadence (~1.33 gen/s)
-      this.genTimer = 0.0;     // Synchronous generation evolution clock
-      this.generation = 0;
-      this.directorTimer = 0;
-
-      // ── PROGRESSIVE POPULATION EBB & FLOW (EXPANSION & CONTRACTION) ──
-      // In Conway's Game of Life, life propagates and moves across space through oscillators,
-      // moving gliders and spaceships (LWSS/MWSS/HWSS), and dynamic methuselah reactions.
-      // Balanced density thresholds maintain a vibrant, active ecosystem with minimal blank space:
-      this.ecoPhase = "grow"; // "grow" or "shrink"
-      this.maxDensityThreshold = 0.20; // Vibrant upper ceiling (~20%)
-      this.minDensityThreshold = 0.065; // Balanced floor (~6.5%)
-
-      this.alive = new Uint8Array(0);
-      this.nextAlive = new Uint8Array(0);
-      this.age = new Uint16Array(0);
-      this.strain = new Uint8Array(0);
-      this.fade = new Float32Array(0);
-      this.neighbors = new Uint8Array(0);
-      this.cellGrowth = new Float32Array(0); // [0..1] continuous growth/bloom progress
-      this.cellPhase = new Float32Array(0);  // spatial phase offset
-      this.cellSpeedK = new Float32Array(0); // Individual time-movement ratio k per cell!
-
-      this.liveCount = 0;
-      this.birthsLastStep = 0;
-      this.activeCount = 0;
-      this.stagnantSteps = 0;
-      this.clickCycle = 0;
-      this.nextStrainCycle = 0;
-      this.lastPointerCell = -1;
-      this.pointerTrailCooldown = 0;
-
-      this.ambientNodes = [];
-      this.events = [];
-      this.pointer = { x: 0, y: 0, active: false };
-    }
-
-    resize(width, height, cw = 12, ch = 18) {
-      this.width = width;
-      this.height = height;
-      this.cw = cw || clamp(Math.round(width / 124), 8, 13);
-      this.ch = ch || Math.round(this.cw * 1.45);
-      const newCols = Math.ceil(width / this.cw);
-      const newRows = Math.ceil(height / this.ch);
-
-      if (newCols !== this.cols || newRows !== this.rows || this.alive.length === 0) {
-        this.cols = newCols;
-        this.rows = newRows;
-        const n = newCols * newRows;
-        this.alive = new Uint8Array(n);
-        this.nextAlive = new Uint8Array(n);
-        this.age = new Uint16Array(n);
-        this.strain = new Uint8Array(n);
-        this.fade = new Float32Array(n);
-        this.neighbors = new Uint8Array(n);
-        this.cellGrowth = new Float32Array(n);
-        this.cellPhase = new Float32Array(n);
-        this.cellSpeedK = new Float32Array(n);
-
-        for (let r = 0; r < newRows; r++) {
-          for (let c = 0; c < newCols; c++) {
-            const i = r * newCols + c;
-            const h = hash3(c, r, 29);
-            this.cellPhase[i] = ((c * 0.082 + r * 0.126 + h * 0.35) % 1.0 + 1.0) % 1.0;
-            // Each cell has an organic movement ratio k between 0.70 and 1.35
-            this.cellSpeedK[i] = 0.70 + 0.65 * hash3(c, r, 73);
-            this.cellGrowth[i] = 0.0;
-          }
-        }
-        this.seedEcosystem(true);
-      }
-    }
-
-    wrapCol(c) {
-      const { cols } = this;
-      return ((c % cols) + cols) % cols;
-    }
-
-    wrapRow(r) {
-      const { rows } = this;
-      return ((r % rows) + rows) % rows;
-    }
-
-    clearDisk(c0, r0, radius) {
-      const { cols, rows, alive, age, fade, cellGrowth } = this;
-      if (!cols || !rows) return;
-      const r2 = radius * radius;
-      for (let dr = -radius; dr <= radius; dr++) {
-        for (let dc = -radius; dc <= radius; dc++) {
-          if (dc * dc + dr * dr > r2) continue;
-          const c = this.wrapCol(c0 + dc);
-          const r = this.wrapRow(r0 + dr);
-          const i = r * cols + c;
-          if (alive[i]) {
-            alive[i] = 0;
-            age[i] = 0;
-            fade[i] = 0.35;
-            if (cellGrowth) cellGrowth[i] = 0.0;
-          }
-        }
-      }
-    }
-
-    stampPattern(patternName, c0, r0, strainId = 0, flipX = false, flipY = false, transpose = false) {
-      const rowsData = LIFE_PATTERNS[patternName];
-      if (!rowsData || !this.cols || !this.rows) return;
-      const pH = rowsData.length;
-      const pW = rowsData[0].length;
-      const { cols, alive, age, strain, fade, cellGrowth } = this;
-
-      for (let pr = 0; pr < pH; pr++) {
-        const line = rowsData[pr];
-        for (let pc = 0; pc < pW; pc++) {
-          if (line[pc] !== "O") continue;
-          let dc = flipX ? pW - 1 - pc : pc;
-          let dr = flipY ? pH - 1 - pr : pr;
-          dc -= Math.floor(pW / 2);
-          dr -= Math.floor(pH / 2);
-          if (transpose) {
-            const tmp = dc;
-            dc = dr;
-            dr = tmp;
-          }
-          const c = this.wrapCol(c0 + dc);
-          const r = this.wrapRow(r0 + dr);
-          const idx = r * cols + c;
-          alive[idx] = 1;
-          age[idx] = 1;
-          strain[idx] = strainId & 3;
-          fade[idx] = 1.0;
-          if (cellGrowth) cellGrowth[idx] = 1.0;
-        }
-      }
-    }
-
-    stampSoup(c0, r0, w = 7, h = 7, density = 0.42, strainId = 0) {
-      const { cols, rows, alive, age, strain, fade, cellGrowth } = this;
-      if (!cols || !rows) return;
-      const hw = Math.floor(w / 2);
-      const hh = Math.floor(h / 2);
-      for (let dr = -hh; dr <= hh; dr++) {
-        for (let dc = -hw; dc <= hw; dc++) {
-          if (hash3(c0 + dc, r0 + dr, (strainId + 1) * 31) < density) {
-            const c = this.wrapCol(c0 + dc);
-            const r = this.wrapRow(r0 + dr);
-            const idx = r * cols + c;
-            alive[idx] = 1;
-            age[idx] = 1;
-            strain[idx] = strainId & 3;
-            fade[idx] = 1.0;
-            if (cellGrowth) cellGrowth[idx] = 1.0;
-          }
-        }
-      }
-    }
-
-    seedEcosystem(fullReset = true) {
-      const { cols, rows, cw, ch } = this;
-      if (!cols || !rows) return;
-      if (fullReset) {
-        this.alive.fill(0);
-        this.nextAlive.fill(0);
-        this.age.fill(0);
-        this.fade.fill(0);
-        if (this.cellGrowth) this.cellGrowth.fill(0);
-      }
-
-      // ── DENSE, VIBRANT MULTI-COLONY ECOSYSTEM ──
-      // Combines endless glider streams, grand oscillators, long-running methuselahs,
-      // moving spaceship flotillas, and primordial soup clusters across the entire grid:
-
-      // 1. Continuous Glider Gun (streams moving gliders diagonally across the screen)
-      if (cols >= 44 && rows >= 20) {
-        this.stampPattern("gosper_gun", Math.round(cols * 0.16), Math.round(rows * 0.18), 0, false, false, false);
-      }
-
-      // 2. Long-Running Dynamic Methuselahs (bursting into rich life for thousands of steps)
-      this.stampPattern("acorn", Math.round(cols * 0.32), Math.round(rows * 0.65), 1, false, false, false);
-      this.stampPattern("r_pentomino", Math.round(cols * 0.70), Math.round(rows * 0.40), 2, false, false, false);
-      this.stampPattern("diehard", Math.round(cols * 0.50), Math.round(rows * 0.82), 3, false, false, false);
-      this.stampPattern("r_pentomino", Math.round(cols * 0.85), Math.round(rows * 0.72), 0, true, false, false);
-
-      // 3. Spectacular Grand Oscillators (rhythmic breathing and rotation)
-      this.stampPattern("pulsar", Math.round(cols * 0.52), Math.round(rows * 0.50), 1, false, false, false);
-      this.stampPattern("koks_galaxy", Math.round(cols * 0.82), Math.round(rows * 0.20), 2, false, false, false);
-      this.stampPattern("pentadecathlon", Math.round(cols * 0.26), Math.round(rows * 0.80), 3, false, false, false);
-
-      // 4. Moving Spaceship Squadrons (horizontal deep-space cruisers)
-      this.stampPattern("lwss", Math.round(cols * 0.10), Math.round(rows * 0.38), 0, false, false, false);
-      this.stampPattern("lwss", Math.round(cols * 0.88), Math.round(rows * 0.58), 1, true, false, false);
-      this.stampPattern("mwss", Math.round(cols * 0.60), Math.round(rows * 0.14), 2, false, false, false);
-      this.stampPattern("mwss", Math.round(cols * 0.38), Math.round(rows * 0.90), 3, true, false, false);
-
-      // 5. Active Glider Fleets traveling diagonally across quadrants
-      this.stampPattern("glider", Math.round(cols * 0.24), Math.round(rows * 0.26), 0, false, false, false);
-      this.stampPattern("glider", Math.round(cols * 0.76), Math.round(rows * 0.70), 1, true, true, false);
-      this.stampPattern("glider", Math.round(cols * 0.78), Math.round(rows * 0.24), 2, true, false, false);
-      this.stampPattern("glider", Math.round(cols * 0.22), Math.round(rows * 0.72), 3, false, true, false);
-
-      // 6. Generative Primordial Soup Patches (instantly ignite into organic blinkers, toads & gliders)
-      const soupCenters = [
-        [0.15, 0.60],
-        [0.38, 0.24],
-        [0.64, 0.78],
-        [0.86, 0.36],
-        [0.44, 0.38],
-        [0.72, 0.84],
-      ];
-      for (let s = 0; s < soupCenters.length; s++) {
-        const [sc, sr] = soupCenters[s];
-        this.stampSoup(Math.round(cols * sc), Math.round(rows * sr), 7, 7, 0.42, s & 3);
-      }
-
-      // Subtle background coordinate markers for ambient depth
-      this.ambientNodes = [];
-      const aCount = clamp(Math.round((cols * rows) / 110), 35, 95);
-      for (let i = 0; i < aCount; i++) {
-        this.ambientNodes.push({
-          x: rand(0, cols * cw),
-          y: rand(0, rows * ch),
-          alive: true,
-          depth: rand(0.56, 0.92),
-          turn: 0,
-          alarm: 0,
-        });
-      }
-
-      if (fullReset) {
-        for (let i = 0; i < this.alive.length; i++) {
-          if (this.alive[i]) {
-            this.cellGrowth[i] = 1.0;
-            this.fade[i] = 1.0;
-          }
-        }
-      }
-      this.updateNeighborCounts();
-      this.events.push({ kind: "pulse", x: (cols * cw) * 0.5, y: (rows * ch) * 0.5 });
-    }
-
-    findOpenSpot() {
-      const { cols, rows, alive } = this;
-      let bestC = Math.floor(cols * 0.5);
-      let bestR = Math.floor(rows * 0.5);
-      let bestScore = Infinity;
-
-      for (let attempt = 0; attempt < 12; attempt++) {
-        const c0 = Math.floor(rand(cols * 0.12, cols * 0.88));
-        const r0 = Math.floor(rand(rows * 0.14, rows * 0.86));
-        let count = 0;
-        for (let dr = -8; dr <= 8; dr += 2) {
-          for (let dc = -8; dc <= 8; dc += 2) {
-            const c = this.wrapCol(c0 + dc);
-            const r = this.wrapRow(r0 + dr);
-            if (alive[r * cols + c]) count++;
-          }
-        }
-        if (count < bestScore) {
-          bestScore = count;
-          bestC = c0;
-          bestR = r0;
-          if (count === 0) break;
-        }
-      }
-      return { c: bestC, r: bestR };
-    }
-
-    spawnColonyAtGrid(c0, r0, burstKind = -1) {
-      const { cw, ch } = this;
-      const sId = (this.nextStrainCycle++) & 3;
-      const mode = burstKind >= 0 ? burstKind % 5 : (this.clickCycle++) % 5;
-
-      // Clear a small breathing pocket so the new population can flourish
-      this.clearDisk(c0, r0, 6);
-
-      if (mode === 0) {
-        // Dynamic Glider Fleet (3 gliders traveling in formation)
-        this.stampPattern("glider", c0, r0, sId, false, false);
-        this.stampPattern("glider", c0 - 5, r0 + 4, (sId + 1) & 3, false, false);
-        this.stampPattern("glider", c0 + 5, r0 - 4, (sId + 2) & 3, true, true);
-      } else if (mode === 1) {
-        // Lightweight spaceship (LWSS) moving across screen + Escort Glider
-        this.stampPattern("lwss", c0, r0, sId, Math.random() < 0.5, false);
-        this.stampPattern("glider", c0 + 7, r0 + 5, (sId + 1) & 3, false, false);
-      } else if (mode === 2) {
-        // R-Pentomino core (famous dynamic methuselah that naturally produces gliders)
-        this.stampPattern("r_pentomino", c0, r0, sId, Math.random() < 0.5, Math.random() < 0.5);
-      } else if (mode === 3) {
-        // Medium spaceship (MWSS) + Cross Glider
-        this.stampPattern("mwss", c0, r0, sId, Math.random() < 0.5, false);
-        this.stampPattern("glider", c0 - 6, r0 - 5, (sId + 2) & 3, false, true);
-      } else {
-        // Kok's Galaxy oscillator + Outward Glider
-        this.stampPattern("koks_galaxy", c0, r0, sId);
-        this.stampPattern("glider", c0 + 8, r0 + 7, (sId + 3) & 3, false, false);
-      }
-
-      this.updateNeighborCounts();
-      const px = (c0 + 0.5) * cw;
-      const py = (r0 + 0.5) * ch;
-      this.events.push({ kind: "divide", x: px, y: py });
-      this.events.push({ kind: "splash", x: px, y: py });
-    }
-
-    // Triggered when the user clicks/taps on a spot in the window!
-    splash(x, y) {
-      if (!this.cols || !this.rows) return;
-      const c0 = clamp(Math.floor(x / this.cw), 0, this.cols - 1);
-      const r0 = clamp(Math.floor(y / this.ch), 0, this.rows - 1);
-      this.spawnColonyAtGrid(c0, r0);
-    }
-
-    updateNeighborCounts() {
-      const { cols, rows, alive, neighbors } = this;
-      for (let r = 0; r < rows; r++) {
-        const rUp = ((r - 1 + rows) % rows) * cols;
-        const rMid = r * cols;
-        const rDn = ((r + 1) % rows) * cols;
-        for (let c = 0; c < cols; c++) {
-          const cL = (c - 1 + cols) % cols;
-          const cR = (c + 1) % cols;
-          neighbors[rMid + c] =
-            alive[rUp + cL] + alive[rUp + c] + alive[rUp + cR] +
-            alive[rMid + cL] +                 alive[rMid + cR] +
-            alive[rDn + cL] + alive[rDn + c] + alive[rDn + cR];
-        }
-      }
-    }
-
-    // Conway's Game of Life laws:
-    // Cells evolve synchronously according to their 8 neighbors:
-    // - Underpopulation: < 2 neighbors dies
-    // - Survival: 2 or 3 neighbors lives
-    // - Overpopulation: > 3 neighbors dies
-    // - Reproduction: exactly 3 neighbors creates a new living cell
-    // Gliders and spaceships travel across empty space.
-    // In shrink phase, parameters modulate gently and slowly to create a relaxed, gradual contraction.
-    step(dt) {
-      this.time += dt;
-      const { cols, rows, alive, nextAlive, age, strain, fade, cellGrowth, cellPhase, cellSpeedK, neighbors, genInterval } = this;
-      if (!cols || !rows) return;
-
-      const n = cols * rows;
-      const baseGrowSpeed = 1 / (genInterval * 0.52);
-      const baseFadeSpeed = 1 / (genInterval * 0.72);
-      const ghostDecay = Math.exp(-dt * 0.85);
-
-      let liveTotal = 0;
-      let births = 0;
-      let activeMoving = 0;
-
-      // Smooth continuous visual interpolation of cell sizes with unique ratio k per cell
-      // so each cell grows and recedes at its own individual speed k!
-      for (let i = 0; i < n; i++) {
-        const k = cellSpeedK ? cellSpeedK[i] : 1.0;
-        if (alive[i]) {
-          cellGrowth[i] = Math.min(1.0, cellGrowth[i] + dt * baseGrowSpeed * k);
-          liveTotal++;
-          if (age[i] <= 4) activeMoving++;
-        } else {
-          cellGrowth[i] = Math.max(0.0, cellGrowth[i] - dt * baseFadeSpeed * k);
-          if (fade[i] > 0.005) {
-            fade[i] *= ghostDecay;
-            if (fade[i] < 0.01) fade[i] = 0;
-          }
-        }
-      }
-
-      this.liveCount = liveTotal;
-      const density = liveTotal / n;
-
-      // ── PROGRESSIVE DENSITY OSCILLATION & PHASE INVERSION ──
-      // When population expands to upper threshold, gently invert to "shrink"
-      if (this.ecoPhase === "grow" && density >= this.maxDensityThreshold) {
-        this.ecoPhase = "shrink";
-      }
-      // When population has contracted down very slowly and calmly, gently invert back to "grow"
-      else if (this.ecoPhase === "shrink" && density <= this.minDensityThreshold) {
-        this.ecoPhase = "grow";
-        const spot = this.findOpenSpot();
-        this.spawnColonyAtGrid(spot.c, spot.r);
-      }
-
-      // Synchronous generation evolution clock
-      this.genTimer += dt;
-      if (this.genTimer >= genInterval) {
-        this.genTimer -= genInterval;
-        this.generation++;
-
-        const isShrink = this.ecoPhase === "shrink";
-        const survivalStrictness = isShrink ? 0.82 : 1.0;
-        const birthProbability = isShrink ? 0.70 : 1.0;
-
-        // 1. Calculate neighbor counts from the current alive buffer
-        for (let r = 0; r < rows; r++) {
-          const rUp = ((r - 1 + rows) % rows) * cols;
-          const rMid = r * cols;
-          const rDn = ((r + 1) % rows) * cols;
-          for (let c = 0; c < cols; c++) {
-            const cL = (c - 1 + cols) % cols;
-            const cR = (c + 1) % cols;
-            neighbors[rMid + c] =
-              alive[rUp + cL] + alive[rUp + c] + alive[rUp + cR] +
-              alive[rMid + cL] +                 alive[rMid + cR] +
-              alive[rDn + cL] + alive[rDn + c] + alive[rDn + cR];
-          }
-        }
-
-        // 2. Compute next state for ALL cells based on canonical Conway laws
-        for (let i = 0; i < n; i++) {
-          const count = neighbors[i];
-          const wasAlive = alive[i];
-
-          if (wasAlive) {
-            let survives = false;
-            if (count === 2) {
-              survives = true;
-            } else if (count === 3) {
-              survives = !isShrink || hash3(i, this.generation, 19) < survivalStrictness;
-            }
-
-            if (survives) {
-              nextAlive[i] = 1;
-              age[i] = Math.min(60000, age[i] + 1);
-              fade[i] = 1.0;
-            } else {
-              // Underpopulation (<2) or overpopulation (>3)
-              nextAlive[i] = 0;
-              age[i] = 0;
-              fade[i] = 0.85;
-            }
-          } else {
-            // Reproduction: exactly 3 living neighbors produces a cell!
-            if (count === 3 && (!isShrink || hash3(i, this.generation, 31) < birthProbability)) {
-              nextAlive[i] = 1;
-              age[i] = 1;
-              fade[i] = 1.0;
-              births++;
-
-              const c = i % cols;
-              const r = (i / cols) | 0;
-              const rUp = ((r - 1 + rows) % rows) * cols;
-              const rMid = r * cols;
-              const rDn = ((r + 1) % rows) * cols;
-              const cL = (c - 1 + cols) % cols;
-              const cR = (c + 1) % cols;
-              const nbIdx = [
-                rUp + cL, rUp + c, rUp + cR,
-                rMid + cL,         rMid + cR,
-                rDn + cL, rDn + c, rDn + cR,
-              ];
-              let s0 = -1, s1 = -1, s2 = -1;
-              for (let k = 0; k < 8; k++) {
-                const ni = nbIdx[k];
-                if (alive[ni]) {
-                  if (s0 < 0) s0 = strain[ni];
-                  else if (s1 < 0) s1 = strain[ni];
-                  else { s2 = strain[ni]; break; }
-                }
-              }
-              if (s0 === s1 || s0 === s2) strain[i] = s0 >= 0 ? s0 & 3 : 0;
-              else if (s1 === s2 && s1 >= 0) strain[i] = s1 & 3;
-              else strain[i] = Math.max(0, s0) & 3;
-            } else {
-              nextAlive[i] = 0;
-            }
-          }
-        }
-
-        // 3. Atomically commit generation state
-        for (let i = 0; i < n; i++) {
-          alive[i] = nextAlive[i];
-        }
-
-        this.birthsLastStep = births;
-      }
-
-      // ── PERPETUAL ECOSYSTEM DIRECTOR ──
-      // Prevents static locked blocks from freezing forever and keeps active gliders moving across space
-      this.directorTimer += dt;
-      if (this.directorTimer >= 3.0) {
-        this.directorTimer = 0;
-        const minEmergencyLive = Math.max(40, Math.round(n * 0.035));
-
-        if (liveTotal < minEmergencyLive) {
-          this.ecoPhase = "grow";
-          this.seedEcosystem(false);
-          this.stagnantSteps = 0;
-          return;
-        }
-
-        const isShrink = this.ecoPhase === "shrink";
-        // Dissolve or perturb very old immortal static blocks (still-lifes like 2x2 blocks or beehives)
-        // so that isolated blocks do not sit idle forever on the workbench!
-        for (let i = 0; i < n; i++) {
-          if (alive[i] && age[i] > 36) {
-            const h = hash3(i, this.generation, 43);
-            if (isShrink ? h < 0.07 : h < 0.03) {
-              alive[i] = 0;
-              nextAlive[i] = 0;
-              age[i] = 0;
-              fade[i] = 0.45;
-            } else if (h > 0.985 && density < this.maxDensityThreshold * 0.8) {
-              const c = i % cols;
-              const r = (i / cols) | 0;
-              this.stampPattern("glider", c, r, (strain[i] + 1) & 3, Math.random() < 0.5, Math.random() < 0.5);
-            }
-          }
-        }
-
-        if (births < 5 || activeMoving < 18) {
-          this.stagnantSteps++;
-        } else {
-          this.stagnantSteps = Math.max(0, this.stagnantSteps - 1);
-        }
-
-        // If the window gets quiet or empty in one area, launch a moving glider across open space
-        if (this.ecoPhase === "grow" && (this.stagnantSteps >= 4 || (this.generation % 16 === 0 && activeMoving < 28)) && density < this.maxDensityThreshold * 0.75) {
-          this.stagnantSteps = 0;
-          const spot = this.findOpenSpot();
-          this.stampPattern("glider", spot.c, spot.r, (this.nextStrainCycle++) & 3, Math.random() < 0.5, Math.random() < 0.5);
-        }
-      }
-    }
-  }
-
-  class BacteriaRenderer extends BaseAsciiRenderer {
-    constructor(canvas) {
-      super(canvas, LIFE_STRAINS, LIFE_TINTS);
-      this.ambientGlyph = "·";
-    }
-
-    resize(width, height, dpr) {
-      const prevCols = this.cols;
-      const prevRows = this.rows;
-      this.width = width;
-      this.height = height;
-      this.dpr = dpr;
-      // Slightly squarer ASCII grid cells so Pulsars, Galaxies, and Gliders have balanced geometry
-      this.cw = clamp(Math.round(width / 112), 10, 14);
-      this.ch = Math.round(this.cw * 1.18);
-      this.cols = Math.ceil(width / this.cw);
-      this.rows = Math.ceil(height / this.ch);
-
-      this.canvas.width = Math.round(width * dpr);
-      this.canvas.height = Math.round(height * dpr);
-      this.bg.width = this.canvas.width;
-      this.bg.height = this.canvas.height;
-
-      const n = this.cols * this.rows;
-      if (this.cols !== prevCols || this.rows !== prevRows) {
-        this.energy = new Float32Array(n);
-        this.energyTmp = new Float32Array(n);
-        this.heat = new Float32Array(n);
-        this.cellFlag = new Uint8Array(n);
-        this.cellShade = new Float32Array(n);
-        this.cellKey = new Uint32Array(n);
-        this.cellDepth = new Float32Array(n);
-        this.cellKind = new Uint8Array(n);
-        this.ambientStamp = new Uint32Array(n);
-      }
-
-      this.paintBackground();
-    }
-
-    render(world, dt) {
-      const { ctx, dpr, cols, ch } = this;
-      if (cols === 0) return;
-      const t = world.time;
-
-      this.consumeEvents(world);
-      this.rasterizeLife(world, t);
-      this.depositWake(world);
-      this.diffuse(dt);
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(this.bg, 0, 0);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      this.markAmbient(world.ambientNodes);
-      this.drawDots();
-
-      ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-
-      this.drawHeat();
-      this.drawAmbient(["·", "+"]);
-      this.drawLifeCells(world, t);
-    }
-
-    depositWake(world) {
-      const { energy } = this;
-      const { alive, age } = world;
-      const n = Math.min(energy.length, alive.length);
-      for (let i = 0; i < n; i++) {
-        if (alive[i] && age[i] === 1) {
-          // Newly born cells emit a soft wake into the diffusion field
-          energy[i] = Math.min(1.3, energy[i] + 0.045);
-        }
-      }
-    }
-
-    rasterizeLife(world, t) {
-      const { cellFlag, cellShade, cellKey, cellDepth, cellKind, cols, rows } = this;
-      const { alive, age, strain, fade, neighbors } = world;
-      cellFlag.fill(0);
-
-      const n = Math.min(cols * rows, alive.length);
-      for (let i = 0; i < n; i++) {
-        const c = i % cols;
-        const r = (i / cols) | 0;
-        const sId = strain[i] & 3;
-        cellKind[i] = sId;
-        cellKey[i] = (hash3(c, r, sId + 11) * 4294967295) >>> 0;
-
-        if (alive[i]) {
-          const a = age[i];
-          const nb = neighbors[i];
-          cellDepth[i] = a <= 4 ? 1.0 : 0.86;
-          if (a === 1) {
-            cellFlag[i] = FLAG_RIDGE; // Newly born cell
-            cellShade[i] = 0.92;
-          } else if (a <= 5) {
-            cellFlag[i] = FLAG_BODY; // Active glider / oscillator / expanding wave
-            cellShade[i] = clamp(0.58 + nb * 0.07, 0.35, 0.95);
-          } else {
-            cellFlag[i] = FLAG_FIN; // Mature still-life / gun structure
-            cellShade[i] = clamp(0.38 + nb * 0.06, 0.25, 0.78);
-          }
-        } else if (fade[i] > 0.08) {
-          // Ghost trail of recently died cell
-          cellFlag[i] = FLAG_EDGE;
-          cellShade[i] = fade[i];
-          cellDepth[i] = 0.75;
-        }
-      }
-    }
-
-    drawLifeCells(world, t) {
-      const {
-        ctx,
-        cols,
-        rows,
-        cw,
-        ch,
-        cellFlag,
-        cellShade,
-        cellKey,
-        cellKind,
-        kinds,
-        tints,
-      } = this;
-      const n = cols * rows;
-      const tick = Math.floor(t * 0.9);
-
-      for (let i = 0; i < n; i++) {
-        const flag = cellFlag[i];
-        if (!flag) continue;
-
-        const col = i % cols;
-        const row = (i / cols) | 0;
-        const x = col * cw;
-        const y = row * ch;
-        const key = cellKey[i];
-        const shade = cellShade[i];
-        const kindName = kinds[cellKind[i]] || kinds[0];
-        const [tr, tg, tb] = tints[kindName] || [0.54, 0.65, 0.84];
-
-        if (flag === FLAG_EDGE) {
-          // Soft fading ghost trail left behind moving gliders & oscillators
-          const alpha = clamp(shade * 0.42, 0.05, 0.34);
-          const rr = clamp(Math.round(244 - (1 - tr) * 85), 140, 242);
-          const gg = clamp(Math.round(246 - (1 - tg) * 85), 145, 244);
-          const bb = clamp(Math.round(250 - (1 - tb) * 85), 150, 248);
-          ctx.fillStyle = `rgba(${rr}, ${gg}, ${bb}, ${(alpha * 0.65).toFixed(3)})`;
-          ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
-
-          const gIdx = clamp(Math.floor((1 - shade) * LIFE_GHOST_GLYPHS.length), 0, LIFE_GHOST_GLYPHS.length - 1);
-          ctx.fillStyle = `rgba(100, 116, 139, ${(alpha * 1.35).toFixed(3)})`;
-          ctx.fillText(LIFE_GHOST_GLYPHS[gIdx], x + cw / 2, y + ch / 2 + 1);
-          continue;
-        }
-
-        let r, g, b, glyph, glyphColor;
-        const roll = hash3(key, tick, 13);
-
-        if (flag === FLAG_RIDGE) {
-          // Newly born cell (age === 1): vivid tinted slate block + bright crisp glyph
-          r = clamp(Math.round(236 - (1 - tr) * 195), 75, 225);
-          g = clamp(Math.round(238 - (1 - tg) * 195), 80, 228);
-          b = clamp(Math.round(244 - (1 - tb) * 195), 90, 236);
-          glyph = LIFE_BIRTH_GLYPHS[(key >>> 6) % LIFE_BIRTH_GLYPHS.length];
-          glyphColor = "#ffffff";
-        } else if (flag === FLAG_BODY) {
-          // Active young cell (age 2..5: gliders, spaceships, oscillators)
-          const depth = 165 + shade * 45;
-          r = clamp(Math.round(242 - (1 - tr) * depth), 85, 228);
-          g = clamp(Math.round(244 - (1 - tg) * depth), 90, 230);
-          b = clamp(Math.round(248 - (1 - tb) * depth), 95, 238);
-          glyph = LIFE_ACTIVE_GLYPHS[(key >>> 5) % LIFE_ACTIVE_GLYPHS.length];
-          glyphColor = roll < 0.14 ? "#ffffff" : "#1e293b";
-        } else {
-          // Mature stable cell (age > 5: blocks, beehives, glider gun stations)
-          const depth = 115 + shade * 40;
-          r = clamp(Math.round(245 - (1 - tr) * depth), 135, 234);
-          g = clamp(Math.round(246 - (1 - tg) * depth), 140, 236);
-          b = clamp(Math.round(250 - (1 - tb) * depth), 148, 242);
-          glyph = LIFE_MATURE_GLYPHS[(key >>> 4) % LIFE_MATURE_GLYPHS.length];
-          glyphColor = "#334155";
-        }
-
-        // Visual interpolation with organic continuous breathing offset per cell
-        const phase = world.cellPhase ? world.cellPhase[i] : 0;
-        const k = world.cellSpeedK ? world.cellSpeedK[i] : 1.0;
-        const isAlive = world.alive ? world.alive[i] : 0;
-        const breath = 0.045 * Math.sin(t * (2.8 * k) + phase * 6.28);
-        const growth = clamp((world.cellGrowth ? world.cellGrowth[i] : 1.0) + (isAlive ? breath : 0), 0, 1);
-        if (growth < 0.04) continue;
-
-        const curW = Math.max(2, (cw - 1) * growth);
-        const curH = Math.max(2, (ch - 1) * growth);
-        const padX = (cw - 1 - curW) * 0.5;
-        const padY = (ch - 1 - curH) * 0.5;
-
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fillRect(x + 1 + padX, y + 1 + padY, curW, curH);
-
-        if (growth > 0.38) {
-          ctx.save();
-          ctx.globalAlpha = clamp((growth - 0.38) / 0.62, 0, 1);
-          ctx.fillStyle = glyphColor;
-          ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
-          ctx.restore();
-        }
-      }
-    }
-  }
-
-  class BacteriaEngine extends BaseLoopEngine {
-    constructor(canvas, specs) {
-      const world = new BacteriaWorld(specs);
-      const renderer = new BacteriaRenderer(canvas);
-      super(canvas, world, renderer);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // 3. MANTA RAYS ENGINE ("mantas")
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -3268,6 +2415,9 @@
           turn: 0,
           isTurning: false,
           turnCooldown: 0,
+          isWaiting: false,
+          waitDuration: 0,
+          yieldTargetId: -1,
           depth: rand(0.55, 0.95),
           phase: rand(0, TAU),
           strokeCycle: (i * (TAU / count)) + rand(0, 0.6), // Staggered swimming strokes!
@@ -3320,8 +2470,50 @@
 
     stepTurtles(dt) {
       const { turtles, width: W, height: H, pointer } = this;
-      const pad = 125; // Margin from screen boundaries for straight transect turns
+      const pad = 120; // Margin from screen boundaries for straight transect turns
 
+      // ── 1. LONG-RANGE RECIPROCAL ENCOUNTER ADJUSTMENT ──
+      // When two turtles are cruising directly towards each other on reciprocal courses,
+      // gently bias both to starboard (their right) well in advance (300-480px apart),
+      // so their tracks naturally separate and they glide past side-by-side with plenty of room!
+      for (let i = 0; i < turtles.length; i++) {
+        const t = turtles[i];
+        if (t.isTurning || t.turnCooldown > 0) continue;
+        const hx = t.nodes[0];
+        const hy = t.nodes[1];
+        const fx = Math.cos(t.heading);
+        const fy = Math.sin(t.heading);
+
+        for (let j = i + 1; j < turtles.length; j++) {
+          const other = turtles[j];
+          const ox = other.nodes[0];
+          const oy = other.nodes[1];
+          const dx = ox - hx;
+          const dy = oy - hy;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist > 220 && dist < 480) {
+            const ofx = Math.cos(other.heading);
+            const ofy = Math.sin(other.heading);
+            const headingDot = fx * ofx + fy * ofy;
+            // Swimming towards each other
+            if (headingDot < -0.65) {
+              const forwardDot = (dx * fx + dy * fy) / dist;
+              if (forwardDot > 0.65) {
+                // Both alter slightly to their right (starboard passing)
+                t.targetHeading = t.heading + 0.20;
+                t.isTurning = true;
+                t.turnCooldown = 5.0;
+                other.targetHeading = other.heading + 0.20;
+                other.isTurning = true;
+                other.turnCooldown = 5.0;
+              }
+            }
+          }
+        }
+      }
+
+      // ── 2. INDIVIDUAL TURTLE NAVIGATION & PROTOCOL ──
       for (let i = 0; i < turtles.length; i++) {
         const t = turtles[i];
         const nodes = t.nodes;
@@ -3331,27 +2523,27 @@
 
         t.turnCooldown -= dt;
 
-        // 1. Boundary detection: When approaching an edge, initiate a smooth turn towards open water
+        // Boundary detection: When approaching an edge, initiate a wide, smooth turn towards ocean center
         const nearEdge = (hx < pad || hx > W - pad || hy < pad || hy > H - pad);
         if (nearEdge && t.turnCooldown <= 0 && !t.isTurning) {
-          // Point back across the central expanse of the ocean
-          const targetX = W / 2 + rand(-W * 0.22, W * 0.22);
-          const targetY = H / 2 + rand(-H * 0.22, H * 0.22);
-          t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.18, 0.18);
+          const targetX = W / 2 + rand(-W * 0.18, W * 0.18);
+          const targetY = H / 2 + rand(-H * 0.18, H * 0.18);
+          t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.10, 0.10);
           t.isTurning = true;
-          t.turnCooldown = 6.0; // Maintain the new straight line for at least 6s
+          t.turnCooldown = 6.0; // Maintain the new straight transect for at least 6s
         }
 
-        // 2. Click splash fleeing response
+        // Click splash fleeing response
         if (t.alarm > 0.02) {
           t.alarm *= Math.exp(-dt * 1.5);
           const fx = hx - t.fleeX;
           const fy = hy - t.fleeY;
           t.targetHeading = Math.atan2(fy, fx);
           t.isTurning = true;
+          t.isWaiting = false;
         }
 
-        // 3. Pointer avoidance
+        // Pointer avoidance
         if (pointer.active) {
           const pdx = hx - pointer.x;
           const pdy = hy - pointer.y;
@@ -3362,94 +2554,147 @@
           }
         }
 
-        // 4. Smooth turtle-to-turtle separation (pass each other cleanly without circling)
+        // ── 3. WAIT-FOR-CLEARANCE COLLISION PROTOCOL ("Esperar hasta que tenga hueco") ──
+        // Instead of swerving sideways (which causes drifting), if another turtle occupies
+        // our forward corridor, STOP AND WAIT peacefully until the way is completely clear!
+        let corridorBlocked = false;
+        const fx = Math.cos(t.heading);
+        const fy = Math.sin(t.heading);
+        const nx = -fy;
+        const ny = fx;
+
+        // Forward corridor dimensions
+        const corridorReach = L * 1.05 + 32;
+        const corridorHalfWidth = L * 0.36 + 16;
+
         for (let j = 0; j < turtles.length; j++) {
           if (i === j) continue;
           const other = turtles[j];
-          const ox = other.nodes[0] - hx;
-          const oy = other.nodes[1] - hy;
-          const dist = Math.hypot(ox, oy);
-          const safeDist = (L + other.length) * 0.52;
-          if (dist < safeDist && dist > 1e-3) {
-            const fx = Math.cos(t.heading);
-            const fy = Math.sin(t.heading);
-            const dot = (ox / dist) * fx + (oy / dist) * fy;
-            if (dot > 0.35) {
-              const nx = -fy;
-              const ny = fx;
-              const side = (ox / dist) * nx + (oy / dist) * ny;
-              const veer = side >= 0 ? -0.40 : 0.40;
-              t.targetHeading = t.heading + veer;
-              t.isTurning = true;
+
+          // Check sample points along other turtle: snout (0), mid-shell (6), rear-shell (12)
+          for (const idx of [0, 6, 12]) {
+            const px = other.nodes[idx * 2];
+            const py = other.nodes[idx * 2 + 1];
+            const dx = px - hx;
+            const dy = py - hy;
+            const fwd = dx * fx + dy * fy;
+            const lat = Math.abs(dx * nx + dy * ny);
+
+            if (fwd > 0 && fwd < corridorReach && lat < corridorHalfWidth) {
+              const otherFx = Math.cos(other.heading);
+              const otherFy = Math.sin(other.heading);
+              const reciprocal = (fx * otherFx + fy * otherFy) < -0.3;
+
+              if (reciprocal) {
+                // Meeting head-on: higher ID yields and waits; lower ID has right-of-way
+                if (t.id > other.id) {
+                  corridorBlocked = true;
+                  t.yieldTargetId = other.id;
+                  break;
+                }
+              } else {
+                // Crossing / following: if other already yielded to us, we proceed
+                if (other.isWaiting && other.yieldTargetId === t.id) {
+                  // Other turtle is waiting for us! We keep swimming
+                } else if (t.id > other.id || fwd < corridorReach * 0.7) {
+                  corridorBlocked = true;
+                  t.yieldTargetId = other.id;
+                  break;
+                }
+              }
             }
           }
+          if (corridorBlocked) break;
         }
 
-        // 5. STRAIGHT-LINE HEADING TRACKING (NO CIRCLES!)
-        // When swimming straight, heading stays 100% constant -> pure straight oceanic transit!
-        // When turning, turns smoothly at a controlled rate (max ~28 deg/s) until aligned
-        const diff = angleDiff(t.heading, t.targetHeading);
-        if (Math.abs(diff) > 0.022) {
-          const maxTurn = 0.48 * dt; // Controlled, majestic turn rate
-          const step = clamp(diff, -maxTurn, maxTurn);
-          t.heading += step;
-          t.turn = step / dt; // Instantaneous turn rate for rudder & banking
+        t.isWaiting = corridorBlocked;
+
+        if (t.isWaiting) {
+          t.waitDuration += dt;
+          // Failsafe: if waiting for over 5s, gently nudge course to find an open path
+          if (t.waitDuration > 5.0) {
+            t.waitDuration = 0;
+            t.targetHeading = t.heading + (t.id % 2 === 0 ? 0.30 : -0.30);
+            t.isTurning = true;
+            t.turnCooldown = 5.0;
+          }
         } else {
-          t.heading = t.targetHeading;
-          t.turn = 0;
-          t.isTurning = false;
+          t.waitDuration = 0;
+          t.yieldTargetId = -1;
         }
 
-        // 6. PHYSICAL ANIMAL LOCOMOTION: Power Stroke + Hydrodynamic Glide
-        t.strokeCycle += dt * (2.1 + (t.alarm > 0.1 ? 1.4 : 0));
-        const strokeSin = Math.sin(t.strokeCycle);
-        const isPowerStroke = strokeSin > 0;
-        const thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
+        // ── 4. STRAIGHT-LINE HEADING TRACKING (NO DRIFTING!) ──
+        // When waiting: DO NOT TURN! Hold the current heading stably.
+        // When cruising: turns smoothly at a controlled, majestic rate (max ~18 deg/s)
+        if (!t.isWaiting) {
+          const diff = angleDiff(t.heading, t.targetHeading);
+          if (Math.abs(diff) > 0.02) {
+            const maxTurn = 0.32 * dt; // Majestic turn rate
+            const step = clamp(diff, -maxTurn, maxTurn);
+            t.heading += step;
+            t.turn = step / dt;
+          } else {
+            t.heading = t.targetHeading;
+            t.turn = 0;
+            t.isTurning = false;
+          }
+        } else {
+          t.turn = 0;
+        }
 
-        // Thrust acceleration: surges forward on power stroke, glides on recovery
-        const baseGlideSpeed = 16 + L * 0.025;
-        const peakThrustSpeed = baseGlideSpeed + 26 + (t.alarm > 0.1 ? 16 : 0);
-        const targetSpeed = baseGlideSpeed + thrustPower * (peakThrustSpeed - baseGlideSpeed);
-        const accelRate = isPowerStroke ? 3.8 : 1.3;
-        t.speed += (targetSpeed - t.speed) * Math.min(1, dt * accelRate);
+        // ── 5. PHYSICAL ANIMAL LOCOMOTION & FLIPPER FLAPPING ──
+        let thrustPower = 0;
+        let isPowerStroke = false;
 
-        // 7. STRICTLY FORWARD TANGENTIAL VELOCITY — 100% STRAIGHT WHEN HEADING IS CONSTANT!
+        if (!t.isWaiting) {
+          // Normal swimming: rhythmic flipper flap (stretch wide on recovery, contract tight on power stroke)
+          t.strokeCycle += dt * (2.1 + (t.alarm > 0.1 ? 1.4 : 0));
+          const strokeSin = Math.sin(t.strokeCycle);
+          isPowerStroke = strokeSin > 0;
+          thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
+
+          const baseGlideSpeed = 16 + L * 0.025;
+          const peakThrustSpeed = baseGlideSpeed + 26 + (t.alarm > 0.1 ? 16 : 0);
+          const targetSpeed = baseGlideSpeed + thrustPower * (peakThrustSpeed - baseGlideSpeed);
+          const accelRate = isPowerStroke ? 3.8 : 1.3;
+          t.speed += (targetSpeed - t.speed) * Math.min(1, dt * accelRate);
+        } else {
+          // Waiting for corridor to clear ("esperarse hasta que tenga hueco"):
+          // Smoothly glide to a stop and maintain buoyant resting posture
+          t.strokeCycle += dt * 0.28; // Calm gentle buoyant idle
+          t.speed += (0 - t.speed) * Math.min(1, dt * 2.6);
+          if (t.speed < 0.2) t.speed = 0;
+        }
+
+        // ── 6. STRICTLY FORWARD TANGENTIAL VELOCITY ──
+        // Nodes only translate along the forward heading direction!
         const moveFx = Math.cos(t.heading);
         const moveFy = Math.sin(t.heading);
         nodes[0] += moveFx * t.speed * dt;
         nodes[1] += moveFy * t.speed * dt;
 
-        // 8. Articulated Head & Neck + Rigid Carapace Spine Alignment
+        // ── 7. KINEMATIC FOLLOW-THE-LEADER SPINE (ZERO LATERAL DRIFT!) ──
+        // Every segment follows the path that the segment in front of it carved in the water.
+        // Because each segment displacement is purely tangential to the water track,
+        // lateral velocity is strictly 0: no sideways skidding or drifting!
         const seg = L / (TURTLE_NODES - 1);
-        const headTurn = clamp(t.turn * 0.38, -0.22, 0.22);
-        const tailTurn = -clamp(t.turn * 0.28, -0.16, 0.16);
+        let prevAngle = t.heading + Math.PI;
 
-        // Snout (Node 0) reaches forward dynamically on the thrust surge
-        const neckStretch = thrustPower * (L * 0.024);
-        const hx0 = nodes[0] + moveFx * neckStretch;
-        const hy0 = nodes[1] + moveFy * neckStretch;
+        for (let k = 1; k < TURTLE_NODES; k++) {
+          const px = nodes[(k - 1) * 2];
+          const py = nodes[(k - 1) * 2 + 1];
+          let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
 
-        // Skull base (Node 1)
-        const angHead = t.heading + Math.PI + headTurn;
-        nodes[2] = hx0 + Math.cos(angHead) * seg;
-        nodes[3] = hy0 + Math.sin(angHead) * seg;
+          // Head/neck (k=1): slight natural articulation
+          // Carapace (k=2..12): stiff constraint (0.038 rad) keeps shell firm and straight,
+          // while tracing the curve of the water without lateral drift!
+          // Tail (k=13..15): trailing tail
+          const maxBend = k <= 1 ? 0.15 : (k <= 12 ? 0.038 : 0.14);
+          angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
 
-        // Carapace spine (Nodes 2..12) aligned rigidly with heading
-        const angBody = t.heading + Math.PI;
-        const bodyCos = Math.cos(angBody);
-        const bodySin = Math.sin(angBody);
-        for (let k = 2; k <= 12; k++) {
-          nodes[k * 2] = nodes[2] + bodyCos * seg * (k - 1);
-          nodes[k * 2 + 1] = nodes[3] + bodySin * seg * (k - 1);
-        }
-
-        // Tail (Nodes 13..15) gently counters the turn
-        const angTail = t.heading + Math.PI + tailTurn;
-        const tailCos = Math.cos(angTail);
-        const tailSin = Math.sin(angTail);
-        for (let k = 13; k < TURTLE_NODES; k++) {
-          nodes[k * 2] = nodes[12 * 2] + tailCos * seg * (k - 12);
-          nodes[k * 2 + 1] = nodes[12 * 2 + 1] + tailSin * seg * (k - 12);
+          nodes[k * 2] = px + Math.cos(angle) * seg;
+          nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
+          prevAngle = angle;
         }
       }
     }
@@ -4301,7 +3546,6 @@
   // ── GLOBAL EXPORTS & THEME SWITCHER ──────────────────────────────────────
 
   window.JellyfishEngine = JellyfishEngine;
-  window.BacteriaEngine = BacteriaEngine;
   window.MantaEngine = MantaEngine;
   window.TurtleEngine = TurtleEngine;
   window.SeaWaveEngine = SeaWaveEngine;
@@ -4311,7 +3555,6 @@
     sharks: "ASCII Sharks by stackedlol",
     turtles: "ASCII Sea Turtles • Loggerhead, Green, Olive Ridley, Hawksbill",
     jellyfish: "ASCII Jellyfish • Inspired by stackedlol",
-    bacteria: "ASCII Game of Life • John Horton Conway (1970)",
     mantas: "ASCII Manta Rays • Inspired by stackedlol",
     waves: "ASCII Permanent Sea Waves • Undulating Ocean Swell",
   };
@@ -4327,9 +3570,7 @@
 
   window.setBackgroundTheme = function (themeName, canvasEl) {
     const mapped =
-      themeName === "game_of_life"
-        ? "bacteria"
-        : themeName === "sound_waves" || themeName === "sea_waves"
+      themeName === "sound_waves" || themeName === "sea_waves"
         ? "waves"
         : themeName === "turtle" || themeName === "tortuga" || themeName === "tortugas"
         ? "turtles"
@@ -4338,7 +3579,6 @@
       "sharks",
       "turtles",
       "jellyfish",
-      "bacteria",
       "mantas",
       "waves",
     ].includes(mapped)
@@ -4358,8 +3598,6 @@
       activeEngine = new TurtleEngine(canvas);
     } else if (normalized === "jellyfish") {
       activeEngine = new JellyfishEngine(canvas);
-    } else if (normalized === "bacteria") {
-      activeEngine = new BacteriaEngine(canvas);
     } else if (normalized === "mantas") {
       activeEngine = new MantaEngine(canvas);
     } else if (normalized === "waves") {
