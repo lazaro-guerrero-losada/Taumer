@@ -3091,10 +3091,10 @@
   const TURTLE_SHAPES = {
     loggerhead: {
       carapaceRatio: 0.62,
-      shellWidth: 0.22, // Narrow, hydrodynamic heart carapace
+      shellWidth: 0.31, // Broad, sturdy heart carapace
       headScale: 0.12,
       beakSharp: false,
-      flipperSpan: 0.68, // Huge, sweeping hydrofoil pectoral flippers!
+      flipperSpan: 0.49, // Balanced hydrofoil pectoral flippers
       palette: "reddish_brown",
       shellTint: [0.42, 0.18, 0.08], // Deep dark burnt terracotta shell
       skinTint: [0.90, 0.70, 0.40],  // Light warm golden-tan flippers & head
@@ -3103,10 +3103,10 @@
     },
     greenturtle: {
       carapaceRatio: 0.65,
-      shellWidth: 0.20, // Elongated smooth teardrop oval
+      shellWidth: 0.29, // Smooth rounded teardrop oval
       headScale: 0.11,
       beakSharp: false,
-      flipperSpan: 0.70, // Long, majestic oceanic wings
+      flipperSpan: 0.52, // Graceful oceanic flipper wings
       palette: "olive_green",
       shellTint: [0.15, 0.30, 0.12], // Deep dark forest / pine-olive shell
       skinTint: [0.55, 0.78, 0.45],  // Luminous light sage-jade flippers & head
@@ -3115,10 +3115,10 @@
     },
     olive_ridley: {
       carapaceRatio: 0.58,
-      shellWidth: 0.23, // Narrower dome
+      shellWidth: 0.33, // Broadest, nearly circular shell
       headScale: 0.11,
       beakSharp: false,
-      flipperSpan: 0.65,
+      flipperSpan: 0.46,
       palette: "slate_olive",
       shellTint: [0.22, 0.28, 0.22], // Deep dark charcoal-olive shell
       skinTint: [0.65, 0.74, 0.62],  // Pale light olive-slate flippers & head
@@ -3127,11 +3127,11 @@
     },
     hawksbill: {
       carapaceRatio: 0.64,
-      shellWidth: 0.19, // Slender streamlined carapace with jagged posterior scutes
+      shellWidth: 0.28, // Distinctive amber tortoiseshell with jagged posterior scutes
       headScale: 0.11,
       beakSharp: true,
       serratedMargin: true,
-      flipperSpan: 0.68,
+      flipperSpan: 0.49,
       palette: "tortoiseshell",
       shellTint: [0.34, 0.18, 0.06], // Deep dark mahogany tortoiseshell with amber scutes
       skinTint: [0.88, 0.70, 0.34],  // Bright golden-amber flippers & head
@@ -3257,9 +3257,7 @@
     }
 
     stepTurtles(dt) {
-      const { turtles, width: W, height: H, time, pointer, tmp: cur } = this;
-      const cxW = W * 0.5;
-      const cyW = H * 0.5;
+      const { turtles, width: W, height: H, pointer } = this;
 
       for (let i = 0; i < turtles.length; i++) {
         const t = turtles[i];
@@ -3268,109 +3266,119 @@
         const hx = nodes[0];
         const hy = nodes[1];
 
+        // 1. Long, peaceful oceanic cruising targets
         t.targetTimer -= dt;
-        if (t.targetTimer <= 0) {
-          t.targetTimer = rand(5.0, 9.5);
-          const ang = rand(0, TAU);
-          const rad = Math.min(W, H) * rand(0.15, 0.42);
-          t.target.x = clamp(cxW + Math.cos(ang) * rad, 90, W - 90);
-          t.target.y = clamp(cyW + Math.sin(ang) * rad, 90, H - 90);
+        const distToTarget = Math.hypot(t.target.x - hx, t.target.y - hy);
+        if (t.targetTimer <= 0 || distToTarget < 90) {
+          t.targetTimer = rand(12.0, 22.0);
+          const fwdAng = t.heading + rand(-0.75, 0.75);
+          const cruiseDist = Math.min(W, H) * rand(0.35, 0.70);
+          t.target.x = clamp(hx + Math.cos(fwdAng) * cruiseDist, 100, W - 100);
+          t.target.y = clamp(hy + Math.sin(fwdAng) * cruiseDist, 100, H - 100);
         }
 
-        flowCurrent(hx, hy, time, cur);
-        let dx = Math.cos(t.heading) * 32 + cur.x * 0.45;
-        let dy = Math.sin(t.heading) * 32 + cur.y * 0.45;
-
+        // 2. Compute smooth steering vector (NO lateral sliding!)
         const toTargetX = t.target.x - hx;
         const toTargetY = t.target.y - hy;
         const dTarget = Math.hypot(toTargetX, toTargetY) || 1;
-        dx += (toTargetX / dTarget) * 22;
-        dy += (toTargetY / dTarget) * 22;
+        let steerX = (toTargetX / dTarget) * 25;
+        let steerY = (toTargetY / dTarget) * 25;
 
+        // Screen boundary smooth avoidance
+        const pad = 110;
+        if (hx < pad) steerX += ((pad - hx) / pad) * 45;
+        else if (hx > W - pad) steerX -= ((hx - (W - pad)) / pad) * 45;
+        if (hy < pad) steerY += ((pad - hy) / pad) * 45;
+        else if (hy > H - pad) steerY -= ((hy - (H - pad)) / pad) * 45;
+
+        // Pointer gentle repulsion
         if (pointer.active) {
           const dpx = hx - pointer.x;
           const dpy = hy - pointer.y;
           const dp = Math.hypot(dpx, dpy);
-          if (dp < L * 1.3 && dp > 1e-3) {
-            const w = (1 - dp / (L * 1.3)) * 45;
-            dx += (dpx / dp) * w;
-            dy += (dpy / dp) * w;
+          if (dp < L * 1.4 && dp > 1e-3) {
+            const w = (1 - dp / (L * 1.4)) * 60;
+            steerX += (dpx / dp) * w;
+            steerY += (dpy / dp) * w;
           }
         }
 
-        // Mutual collision radar between turtles
-        const fx0 = Math.cos(t.heading);
-        const fy0 = Math.sin(t.heading);
-        const nx0 = -fy0;
-        const ny0 = fx0;
-        let latSlide = 0;
-        let speedMod = 1.0;
+        // Turtle-to-turtle smooth angular avoidance (steer gracefully, don't slide sideways)
+        const fx = Math.cos(t.heading);
+        const fy = Math.sin(t.heading);
+        const nx = -fy;
+        const ny = fx;
 
         for (let j = 0; j < turtles.length; j++) {
           if (i === j) continue;
           const other = turtles[j];
           const toX = other.nodes[0] - hx;
           const toY = other.nodes[1] - hy;
-          const curDist = Math.hypot(toX, toY);
-          const radarRange = (L + other.length) * 0.65;
-          if (curDist < radarRange && curDist > 1e-3) {
-            const ahead = (toX / curDist) * fx0 + (toY / curDist) * fy0;
-            if (ahead > -0.2) {
-              const prox = 1 - curDist / radarRange;
-              const latOffset = -(toX * nx0 + toY * ny0);
-              const passSide = latOffset >= 0 ? 1 : -1;
-              dx += nx0 * passSide * prox * 30;
-              dy += ny0 * passSide * prox * 30;
-              speedMod *= t.id < other.id ? 1.08 : 0.92;
+          const dist = Math.hypot(toX, toY);
+          const safeDist = (L + other.length) * 0.70;
+          if (dist < safeDist && dist > 1e-3) {
+            const ahead = (toX / dist) * fx + (toY / dist) * fy;
+            if (ahead > 0.05) {
+              const lat = (toX / dist) * nx + (toY / dist) * ny;
+              const avoidSide = lat >= 0 ? -1 : 1;
+              const strength = (1 - dist / safeDist) * 35;
+              steerX += nx * avoidSide * strength;
+              steerY += ny * avoidSide * strength;
             }
           }
-          const coreRange = (L + other.length) * 0.28;
-          if (curDist < coreRange && curDist > 1e-3) {
-            const push = (1 - curDist / coreRange) * 14;
-            const latProj = (-toX / curDist) * nx0 + (-toY / curDist) * ny0;
-            latSlide += (latProj >= 0 ? 1 : -1) * push;
-          }
         }
 
-        // Screen boundary soft steering
-        const pad = 85;
-        const over = Math.max(-hx + pad, hx - (W - pad), -hy + pad, hy - (H - pad));
-        if (over > 0) {
-          const w = clamp(over / (pad * 0.8), 0, 1) * 35;
-          dx += ((cxW - hx) / Math.hypot(cxW - hx, cyW - hy)) * w;
-          dy += ((cyW - hy) / Math.hypot(cxW - hx, cyW - hy)) * w;
-        }
+        // 3. Smooth, graceful turning rate (realistic aquatic kinematics, max ~26 deg/s)
+        const desired = Math.atan2(steerY, steerX);
+        const err = angleDiff(t.heading, desired);
+        const maxTurnRate = 0.46;
+        const targetTurn = clamp(err * 1.5, -maxTurnRate, maxTurnRate);
+        t.turn += (targetTurn - t.turn) * Math.min(1, dt * 2.2);
+        t.heading += t.turn * dt;
 
-        const desired = Math.atan2(dy, dx);
-        const maxTurn = 0.52 * dt;
-        const turned = clamp(angleDiff(t.heading, desired), -maxTurn, maxTurn);
-        t.heading += turned;
-        t.turn += (turned / dt - t.turn) * Math.min(1, dt * 2.5);
-
-        // Slow, rhythmic, graceful flipper power stroke
+        // 4. Rhythmic flipper stroke propulsive pulsing
         t.strokeCycle += dt * 1.35;
-        const strokePower = Math.pow(Math.max(0, Math.sin(t.strokeCycle)), 2.0);
-        const cruise = (21 + L * 0.024 + strokePower * 8) * clamp(speedMod, 0.85, 1.15);
-        t.speed += (cruise - t.speed) * Math.min(1, dt * 1.5);
+        // Stroke power: peaks when flippers sweep back (power stroke)
+        const strokePower = Math.pow(Math.max(0, Math.sin(t.strokeCycle)), 2.2);
+        const baseSpeed = 19 + L * 0.022;
+        const targetSpeed = baseSpeed + strokePower * 9.5;
+        t.speed += (targetSpeed - t.speed) * Math.min(1, dt * 2.0);
 
-        const fx = Math.cos(t.heading);
-        const fy = Math.sin(t.heading);
-        nodes[0] += (fx * t.speed - fy * latSlide) * dt;
-        nodes[1] += (fy * t.speed + fx * latSlide) * dt;
+        // 5. Strictly forward velocity along body heading — ZERO DRIFTING!
+        const moveFx = Math.cos(t.heading);
+        const moveFy = Math.sin(t.heading);
+        nodes[0] += moveFx * t.speed * dt;
+        nodes[1] += moveFy * t.speed * dt;
 
-        // Spine trailing curve
+        // 6. Rigid carapace spine alignment (carapace is solid bone & keratin, doesn't bend like a fish!)
         const seg = L / (TURTLE_NODES - 1);
-        let prevAngle = t.heading + Math.PI;
-        for (let k = 1; k < TURTLE_NODES; k++) {
-          const px = nodes[(k - 1) * 2];
-          const py = nodes[(k - 1) * 2 + 1];
-          // Carapace (nodes 3..12) is rigid! Bends very slightly
-          const maxBend = k >= 3 && k <= 12 ? 0.038 : 0.16;
-          let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
-          angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
-          nodes[k * 2] = px + Math.cos(angle) * seg;
-          nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
-          prevAngle = angle;
+        const headTurn = clamp(t.turn * 0.35, -0.20, 0.20);
+        const tailTurn = -clamp(t.turn * 0.25, -0.15, 0.15);
+
+        const hx0 = nodes[0];
+        const hy0 = nodes[1];
+
+        // Node 1: skull base
+        const angHead = t.heading + Math.PI + headTurn;
+        nodes[2] = hx0 + Math.cos(angHead) * seg;
+        nodes[3] = hy0 + Math.sin(angHead) * seg;
+
+        // Nodes 2..12: rigid carapace spine aligned exactly with t.heading
+        const angBody = t.heading + Math.PI;
+        const bodyCos = Math.cos(angBody);
+        const bodySin = Math.sin(angBody);
+        for (let k = 2; k <= 12; k++) {
+          nodes[k * 2] = nodes[2] + bodyCos * seg * (k - 1);
+          nodes[k * 2 + 1] = nodes[3] + bodySin * seg * (k - 1);
+        }
+
+        // Nodes 13..15: tail
+        const angTail = t.heading + Math.PI + tailTurn;
+        const tailCos = Math.cos(angTail);
+        const tailSin = Math.sin(angTail);
+        for (let k = 13; k < TURTLE_NODES; k++) {
+          nodes[k * 2] = nodes[12 * 2] + tailCos * seg * (k - 12);
+          nodes[k * 2 + 1] = nodes[12 * 2 + 1] + tailSin * seg * (k - 12);
         }
       }
     }
@@ -3558,8 +3566,8 @@
       const shellEnd = 0.78;
       if (s >= shellStart && s <= shellEnd) {
         const pShell = (s - shellStart) / (shellEnd - shellStart); // 0 at anterior nuchal notch, 1 at posterior
-        // Narrower, elongated streamlined carapace
-        const maxShellW = L * (shape.shellWidth || 0.22);
+        // Broad, natural carapace dome
+        const maxShellW = L * (shape.shellWidth || 0.30);
 
         let shellProf;
         if (shape.scuteType === "ridley") {
@@ -3619,24 +3627,25 @@
         }
       }
 
-      // ── 3. LARGE FRONT FLIPPERS (PECTORAL WINGS - Prominent, sweeping, long!) ──
-      const flipperRootS = 0.22;
+      // ── 3. BALANCED FRONT FLIPPERS (PECTORAL WINGS - Rhythmic flapping & rowing strokes) ──
+      const flipperRootS = 0.24;
       const stroke = Math.sin(t.strokeCycle);
-      const aMin = L * 0.08;
-      const aMax = L * (shape.flipperSpan || 0.68);
+      const aMin = L * 0.09;
+      const aMax = L * (shape.flipperSpan || 0.50);
 
       if (a >= aMin && a <= aMax) {
         const spanProg = (a - aMin) / (aMax - aMin); // 0 at shoulder, 1 at wingtip
-        // Natural backward sweep that curves gracefully as spanProg increases
-        const sweep = 0.12 * stroke * (1 - spanProg) + 0.24 * Math.pow(spanProg, 1.25);
-        const flipperAxisS = flipperRootS + 0.10 * spanProg + sweep;
-        // Broad, substantial blade chord so the flipper forms a solid, continuous wing
-        const flipperChord = 0.085 + 0.085 * Math.sin(spanProg * Math.PI) * (1 - 0.35 * spanProg);
+        // Rhythmic flapping motion: wingtips swing forward on recovery and sweep back on power stroke!
+        const flapSweep = stroke * (0.16 * Math.pow(spanProg, 1.15));
+        const baseSweep = 0.18 * Math.pow(spanProg, 1.35);
+        const flipperAxisS = flipperRootS + flapSweep + baseSweep;
+        // Hydrodynamic tapered blade chord
+        const flipperChord = 0.055 + 0.045 * Math.sin(spanProg * Math.PI) * (1 - 0.25 * spanProg);
         const ds = Math.abs(s - flipperAxisS);
 
         if (ds <= flipperChord) {
           this.hitFlag = FLAG_FIN; // Flippers (uses lighter skinTint!)
-          this.hitShade = 0.70 - spanProg * 0.20;
+          this.hitShade = 0.72 - spanProg * 0.20;
           return true;
         }
       }
@@ -3852,701 +3861,6 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 6. FLYING BIRDS IN V-FORMATION ENGINE ("birds" / "v_birds")
-  //    Migrating bird flocks flying smoothly upwards from down to top (-Y).
-  //    Organized into realistic V-formations (skeins) with species:
-  //    - Canada Geese (classic black head & white cheek, brownish body)
-  //    - Sandhill Cranes (long outstretched neck & trailing legs, slate gray)
-  //    - Glossy / Scarlet Ibises (curved slender decurved beak & wingtips)
-  //    - Alpine Swifts (agile swept scythe-like crescent wings, dark brown)
-  //    Atmospheric drifting ASCII clouds in the background moving top to down (+Y)
-  //    at a distinct parallax velocity, with birds sharply rendered in front.
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const BIRD_SPECIES = {
-    goose: {
-      name: "Canada Goose",
-      wingSpan: 136,
-      bodyLen: 80,
-      neckLen: 28,
-      wingBeatSpeed: 2.6,
-      tint: [0.38, 0.34, 0.30], // Charcoal-brown body plumage
-      wingTint: [0.14, 0.14, 0.14], // Jet-black primary wingtips
-    },
-    crane: {
-      name: "Sandhill Crane",
-      wingSpan: 160,
-      bodyLen: 96,
-      neckLen: 36,
-      legLen: 34,
-      wingBeatSpeed: 1.9,
-      tint: [0.48, 0.54, 0.62], // Slate gray body
-      wingTint: [0.22, 0.26, 0.32], // Dark slate flight primaries
-    },
-    snow_goose: {
-      name: "Snow Goose",
-      wingSpan: 128,
-      bodyLen: 74,
-      neckLen: 24,
-      wingBeatSpeed: 2.8,
-      tint: [0.94, 0.96, 0.98], // Pure snow-white plumage
-      wingTint: [0.12, 0.12, 0.14], // Jet-black flight primaries
-    },
-    swift: {
-      name: "Alpine Swift",
-      wingSpan: 104,
-      bodyLen: 58,
-      neckLen: 12,
-      wingBeatSpeed: 4.4,
-      tint: [0.22, 0.24, 0.30], // Aerodynamic dark slate
-      wingTint: [0.12, 0.14, 0.18],
-    },
-    seagull: {
-      name: "Seagull",
-      wingSpan: 120,
-      bodyLen: 68,
-      neckLen: 20,
-      wingBeatSpeed: 3.2,
-      tint: [0.72, 0.76, 0.82], // Pearl gray mantle
-      wingTint: [0.12, 0.14, 0.16], // Jet-black wingtips
-    },
-  };
-
-  const CLOUD_DENSITY_GLYPHS = [" ", "·", ".", ":", "*", "%", "#", "@"];
-
-  // ── UNIFIED CELLULAR ASCII BIRD SAMPLER ──
-  // Correct anatomical coordinate frame:
-  // u is positive forward along flight direction (+ towards head and beak, - towards tail and legs)
-  // v is lateral perpendicular to flight direction.
-  function sampleBirdPoint(px, py, bird, spKey, outHit) {
-    const sp = BIRD_SPECIES[spKey] || BIRD_SPECIES.goose;
-    const bx = bird.x;
-    const by = bird.y;
-
-    const vx = bird.vx !== undefined ? bird.vx : 0;
-    const vy = bird.vy !== undefined ? bird.vy : -50;
-    const spd = Math.hypot(vx, vy) || 1;
-    // Unit vector in flight direction (forward)
-    const fx = vx / spd;
-    const fy = vy / spd;
-    // Unit normal vector (lateral to right)
-    const nx = -fy;
-    const ny = fx;
-
-    const dx = px - bx;
-    const dy = py - by;
-
-    // Forward projection (+ towards head/beak in flight direction, - towards tail/legs)
-    const u = dx * fx + dy * fy;
-    // Lateral projection
-    const v = dx * nx + dy * ny;
-    const a = Math.abs(v);
-
-    const sz = bird.size || 1.0;
-    const L = sp.bodyLen * sz;
-    const S = sp.wingSpan * 0.5 * sz;
-    const flap = Math.sin((bird.wingPhase || 0) + (bird.wingPhaseOffset || 0));
-
-    const uTail = -L * 0.44;
-    const uHead = spKey === "crane" ? L * 0.74 : (spKey === "swift" ? L * 0.48 : L * 0.60);
-
-    // 1. Sandhill Crane long trailing legs extending backwards behind tail
-    if (spKey === "crane" && u < uTail && u >= uTail - (sp.legLen || 34) * sz) {
-      if (a <= 3.2) {
-        outHit.flag = FLAG_FIN;
-        outHit.shade = 0.40;
-        outHit.s = 0;
-        outHit.v = v;
-        return true;
-      }
-    }
-
-    // 2. Fuselage (Tail fan, Torso, Neck, Head, Beak)
-    if (u >= uTail && u <= uHead) {
-      const uNeck = L * 0.10;
-      if (u > uNeck) {
-        // Neck, Head & Beak (ahead of wings)
-        const pHead = (u - uNeck) / (uHead - uNeck); // 0 at base of neck, 1 at beak tip
-
-        let wHead;
-        if (spKey === "crane") {
-          // Long slender neck, swelling at skull (pHead 0.62-0.86), sharp beak (0.86-1.0)
-          if (pHead < 0.62) wHead = 3.6;
-          else if (pHead < 0.86) wHead = 5.2 + 1.8 * Math.sin(((pHead - 0.62) / 0.24) * Math.PI);
-          else wHead = Math.max(1.8, 3.2 * (1 - (pHead - 0.86) / 0.14));
-        } else if (spKey === "swift") {
-          wHead = (L * 0.12) * Math.sin((1 - pHead) * 0.85 * Math.PI + 0.15) + 3.2;
-        } else {
-          // Goose, Seagull, Snow Goose
-          if (pHead < 0.48) wHead = 4.6;
-          else if (pHead < 0.82) wHead = 6.0 + 2.2 * Math.sin(((pHead - 0.48) / 0.34) * Math.PI);
-          else wHead = Math.max(2.0, 4.0 * (1 - (pHead - 0.82) / 0.18));
-        }
-
-        if (a <= wHead) {
-          if (spKey === "goose") {
-            // Canada Goose: black head, white cheek patch, dark beak
-            if (pHead >= 0.82) {
-              outHit.flag = FLAG_FIN; // Dark beak
-              outHit.shade = 0.85;
-            } else if (pHead >= 0.50 && pHead <= 0.78 && a >= wHead * 0.32) {
-              outHit.flag = FLAG_WHITE_PATCH; // White cheek patch!
-              outHit.shade = 0.98;
-            } else if (pHead >= 0.58 && pHead <= 0.74 && a >= wHead * 0.65) {
-              outHit.flag = FLAG_EYE;
-              outHit.shade = 0;
-            } else {
-              outHit.flag = FLAG_BODY;
-              outHit.shade = 0.92; // Jet-black head and neck
-            }
-          } else if (spKey === "crane") {
-            // Sandhill Crane: crimson red crown on forehead/skull, eye, dark beak
-            if (pHead >= 0.86) {
-              outHit.flag = FLAG_FIN; // Dark spear beak
-              outHit.shade = 0.80;
-            } else if (pHead >= 0.62 && pHead <= 0.86 && a <= wHead * 0.85) {
-              outHit.flag = FLAG_MARK; // Crimson red crown cap on forehead!
-              outHit.shade = 1.0;
-            } else if (pHead >= 0.66 && pHead <= 0.78 && a >= wHead * 0.55) {
-              outHit.flag = FLAG_EYE;
-              outHit.shade = 0;
-            } else {
-              outHit.flag = FLAG_BODY;
-              outHit.shade = 0.58; // Slate gray
-            }
-          } else if (spKey === "seagull") {
-            // Seagull: pure white head, yellow beak, dark eye
-            if (pHead >= 0.78) {
-              outHit.flag = FLAG_MARK; // Yellow beak
-              outHit.shade = 0.95;
-            } else if (pHead >= 0.54 && pHead <= 0.72 && a >= wHead * 0.50) {
-              outHit.flag = FLAG_EYE;
-              outHit.shade = 0;
-            } else {
-              outHit.flag = FLAG_WHITE_PATCH; // Snowy white head
-              outHit.shade = 0.98;
-            }
-          } else if (spKey === "snow_goose") {
-            // Snow Goose: orange beak, white head, eye
-            if (pHead >= 0.80) {
-              outHit.flag = FLAG_MARK; // Orange beak
-              outHit.shade = 0.95;
-            } else if (pHead >= 0.56 && pHead <= 0.72 && a >= wHead * 0.55) {
-              outHit.flag = FLAG_EYE;
-              outHit.shade = 0;
-            } else {
-              outHit.flag = FLAG_WHITE_PATCH;
-              outHit.shade = 0.98;
-            }
-          } else if (spKey === "swift") {
-            // Swift: white throat patch, dark head
-            if (pHead >= 0.10 && pHead <= 0.44 && a <= 3.6) {
-              outHit.flag = FLAG_WHITE_PATCH;
-              outHit.shade = 0.95;
-            } else {
-              outHit.flag = FLAG_BODY;
-              outHit.shade = 0.75;
-            }
-          }
-          outHit.s = pHead;
-          outHit.v = v;
-          return true;
-        }
-      } else {
-        // Torso & Belly (u between uTail and uNeck)
-        const pTorso = (u - uTail) / (uNeck - uTail); // 0 at rear/tail, 1 at neck
-        const wTorso = L * 0.18 * Math.sin(pTorso * Math.PI) + 4.5;
-        if (a <= wTorso) {
-          if (spKey === "snow_goose" || (spKey === "seagull" && a < wTorso * 0.65)) {
-            outHit.flag = FLAG_WHITE_PATCH;
-            outHit.shade = 0.96;
-          } else {
-            outHit.flag = FLAG_BODY;
-            outHit.shade = 0.68 - 0.20 * (a / (wTorso || 1));
-          }
-          outHit.s = pTorso;
-          outHit.v = v;
-          return true;
-        }
-      }
-    }
-
-    // 3. Flapping Wings
-    const aRoot = L * 0.08;
-    const aTip = S;
-
-    if (a >= aRoot && a <= aTip) {
-      const rSpan = (a - aRoot) / (aTip - aRoot); // 0 at shoulder, 1 at wingtip
-      const uFlap = (spKey === "swift" ? 7.0 : 10.0) * flap * Math.pow(rSpan, 1.25);
-      const sweep = spKey === "swift" ? 0.42 : 0.30;
-      const uLead = L * 0.14 - (L * sweep) * Math.pow(rSpan, 1.1) + uFlap;
-      const chordFactor = spKey === "swift" ? 0.32 : 0.40;
-      const wChord = (L * chordFactor) * (1.0 - 0.52 * rSpan) * (1.0 - 0.10 * flap) + 6.0;
-      const uTrail = uLead - wChord;
-
-      if (u <= uLead && u >= uTrail) {
-        if (rSpan > 0.68) {
-          outHit.flag = FLAG_FIN; // Flight primary wingtips (dark)
-          outHit.shade = 0.88;
-        } else if (u > uLead - 3.5) {
-          outHit.flag = FLAG_RIDGE; // Leading edge
-          outHit.shade = 0.92;
-        } else {
-          if (spKey === "snow_goose") {
-            outHit.flag = FLAG_WHITE_PATCH;
-            outHit.shade = 0.96;
-          } else if (spKey === "seagull") {
-            outHit.flag = rSpan < 0.42 ? FLAG_WHITE_PATCH : FLAG_BODY;
-            outHit.shade = 0.72;
-          } else {
-            outHit.flag = FLAG_BODY;
-            outHit.shade = 0.64 - 0.18 * rSpan;
-          }
-        }
-        outHit.s = rSpan;
-        outHit.v = v;
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  // Unified styling for bird cells across all species
-  function getBirdCellStyling(flag, shade, spKey, key) {
-    const sp = BIRD_SPECIES[spKey] || BIRD_SPECIES.goose;
-    let bgR, bgG, bgB;
-    let glyph;
-    let glyphColor = "#ffffff";
-
-    if (flag === FLAG_WHITE_PATCH) {
-      // Pure white cheek / throat / plumage patch
-      bgR = 248; bgG = 250; bgB = 252;
-      glyph = "*";
-      glyphColor = "#334155";
-    } else if (flag === FLAG_MARK) {
-      if (spKey === "crane") {
-        // Sandhill Crane crimson red crown cap on top of head!
-        bgR = 220; bgG = 38; bgB = 38;
-        glyph = "@";
-        glyphColor = "#fef2f2";
-      } else if (spKey === "seagull") {
-        // Seagull bright yellow beak
-        bgR = 234; bgG = 179; bgB = 8;
-        glyph = "^";
-        glyphColor = "#78350f";
-      } else if (spKey === "snow_goose") {
-        // Snow goose orange beak
-        bgR = 234; bgG = 88; bgB = 12;
-        glyph = "^";
-        glyphColor = "#fff7ed";
-      } else {
-        bgR = 220; bgG = 38; bgB = 38;
-        glyph = "@";
-        glyphColor = "#ffffff";
-      }
-    } else if (flag === FLAG_EYE) {
-      bgR = 15; bgG = 23; bgB = 42;
-      glyph = "o";
-      glyphColor = "#ffffff";
-    } else if (flag === FLAG_FIN) {
-      // Flight primaries / wingtips / crane legs
-      const [wr, wg, wb] = sp.wingTint;
-      const lum = Math.round(180 * shade);
-      bgR = Math.round(lum * wr);
-      bgG = Math.round(lum * wg);
-      bgB = Math.round(lum * wb);
-      const FLIGHT_GLYPHS = ["\\", "/", "=", "-", "~"];
-      glyph = FLIGHT_GLYPHS[(key >>> 5) % FLIGHT_GLYPHS.length];
-      glyphColor = "#e2e8f0";
-    } else if (flag === FLAG_RIDGE) {
-      // Wing leading edge
-      const [br, bg, bb] = sp.tint;
-      const lum = Math.round(150 * shade);
-      bgR = Math.round(lum * br);
-      bgG = Math.round(lum * bg);
-      bgB = Math.round(lum * bb);
-      glyph = "@";
-      glyphColor = "#cbd5e1";
-    } else {
-      // Body plumage
-      const [br, bg, bb] = sp.tint;
-      const lum = Math.round(220 * shade);
-      bgR = Math.round(lum * br);
-      bgG = Math.round(lum * bg);
-      bgB = Math.round(lum * bb);
-      glyph = SKIN_RAMP[clamp(Math.floor(shade * 8.99), 0, SKIN_RAMP.length - 1)];
-      glyphColor = lum < 120 ? "#f8fafc" : "#1e293b";
-    }
-
-    return { bgR, bgG, bgB, glyph, glyphColor };
-  }
-
-  class BirdWorld {
-    constructor() {
-      this.width = 0;
-      this.height = 0;
-      this.time = 0;
-      this.flocks = [];
-      this.clouds = [];
-      this.events = [];
-      this.pointer = { x: 0, y: 0, active: false };
-
-      // Background clouds velocity: drifting downwards from top to down (+Y)
-      this.cloudSpeed = 15; // px/sec down
-
-      // Birds fly upwards from down to top (-Y)
-      this.birdFlightSpeed = 50; // px/sec up
-      this.flockSpawnTimer = 0.5;
-    }
-
-    resize(width, height) {
-      const first = this.width === 0;
-      this.width = width;
-      this.height = height;
-
-      if (first || this.clouds.length === 0) {
-        this.seedClouds();
-      }
-      if (first || this.flocks.length === 0) {
-        this.seedFlocks();
-      }
-    }
-
-    seedClouds() {
-      this.clouds = [];
-      const count = clamp(Math.round((this.width * this.height) / 38000), 12, 26);
-      for (let i = 0; i < count; i++) {
-        this.clouds.push({
-          x: rand(0, this.width),
-          y: rand(0, this.height),
-          rx: rand(65, 160),
-          ry: rand(28, 65),
-          density: rand(0.35, 0.75),
-          driftX: rand(-3.5, 3.5),
-          speedY: rand(11, 20), // Top to down
-          puffPhase: rand(0, TAU),
-        });
-      }
-    }
-
-    createFlock(speciesKey, apexX, apexY, birdCount = 9) {
-      const sp = BIRD_SPECIES[speciesKey] || BIRD_SPECIES.goose;
-      const birds = [];
-      const vAngle = 0.62; // ~35 deg half-angle of the V formation
-      const spacing = sp.wingSpan * rand(0.68, 0.78);
-
-      // Apex bird (leader at position 0)
-      birds.push({
-        relX: 0,
-        relY: 0,
-        wingPhase: 0,
-        wingPhaseOffset: 0,
-        lag: 0,
-        size: 1.05,
-      });
-
-      // Left and right arms of the V-skein
-      const pairs = Math.floor((birdCount - 1) / 2);
-      for (let p = 1; p <= pairs; p++) {
-        const dist = p * spacing;
-        const phaseLag = p * 0.28; // Aerodynamic wingtip vortex phase coordination!
-
-        // Left wing bird
-        birds.push({
-          relX: -Math.sin(vAngle) * dist + rand(-2, 2),
-          relY: Math.cos(vAngle) * dist + rand(-2, 2),
-          wingPhase: -phaseLag,
-          wingPhaseOffset: rand(-0.1, 0.1),
-          lag: p,
-          size: rand(0.94, 1.02),
-        });
-
-        // Right wing bird
-        birds.push({
-          relX: Math.sin(vAngle) * dist + rand(-2, 2),
-          relY: Math.cos(vAngle) * dist + rand(-2, 2),
-          wingPhase: -phaseLag - 0.1,
-          wingPhaseOffset: rand(-0.1, 0.1),
-          lag: p,
-          size: rand(0.94, 1.02),
-        });
-      }
-
-      return {
-        species: speciesKey,
-        apexX,
-        apexY,
-        vx: rand(-3, 3),
-        vy: -rand(46, 56), // Flying upwards (down to top)
-        birds,
-        bobPhase: rand(0, TAU),
-      };
-    }
-
-    seedFlocks() {
-      this.flocks = [];
-      const keys = ["goose", "crane", "snow_goose", "swift"];
-      const spKey = keys[Math.floor(Math.random() * keys.length)];
-      const birdCount = Math.floor(rand(7, 11));
-      const apexX = rand(this.width * 0.35, this.width * 0.65);
-      const apexY = this.height * 0.62;
-      this.flocks.push(this.createFlock(spKey, apexX, apexY, birdCount));
-      this.flockSpawnTimer = rand(6, 10);
-    }
-
-    splash(x, y) {
-      this.events.push({ kind: "pulse", x, y });
-      for (const flock of this.flocks) {
-        const dx = flock.apexX - x;
-        const dy = flock.apexY - y;
-        const d = Math.hypot(dx, dy);
-        if (d < 220) {
-          flock.vx += dx > 0 ? 16 : -16;
-          flock.vy -= 12;
-        }
-      }
-    }
-
-    step(dt) {
-      this.time += dt;
-      const { width: W, height: H } = this;
-      if (!W || !H) return;
-
-      // ── 1. BACKGROUND CLOUDS DRIFTING FROM TOP TO DOWN (+Y) ──
-      for (const c of this.clouds) {
-        c.y += c.speedY * dt;
-        c.x += c.driftX * dt;
-        if (c.y - c.ry > H + 40) {
-          c.y = -c.ry - 20;
-          c.x = rand(0, W);
-        }
-        if (c.x < -c.rx - 20) c.x = W + c.rx + 20;
-        else if (c.x > W + c.rx + 20) c.x = -c.rx - 20;
-      }
-
-      // ── 2. FLOCKS FLYING UPWARDS FROM DOWN TO TOP (-Y) ──
-      for (let i = this.flocks.length - 1; i >= 0; i--) {
-        const f = this.flocks[i];
-        const sp = BIRD_SPECIES[f.species] || BIRD_SPECIES.goose;
-
-        f.apexX += f.vx * dt;
-        f.apexY += f.vy * dt;
-        f.bobPhase += dt * 1.2;
-
-        f.vx += Math.sin(this.time * 0.4 + f.bobPhase) * 2.0 * dt;
-        f.vx = clamp(f.vx, -12, 12);
-
-        for (const b of f.birds) {
-          b.wingPhase += dt * sp.wingBeatSpeed;
-        }
-
-        let allPastTop = true;
-        for (const b of f.birds) {
-          if (f.apexY + b.relY > -80) {
-            allPastTop = false;
-            break;
-          }
-        }
-        if (allPastTop) {
-          this.flocks.splice(i, 1);
-        }
-      }
-
-      // ── 3. SPAWN NEW MIGRATORY SKEINS AT THE BOTTOM (+Y) ──
-      // Strictly enforce flock spacing so V-skeins NEVER collide or overlap!
-      this.flockSpawnTimer -= dt;
-      const canSpawn = this.flocks.length === 0 || (this.flocks.length === 1 && this.flocks[0].apexY < H * 0.15);
-      if (canSpawn && this.flockSpawnTimer <= 0) {
-        this.flockSpawnTimer = rand(10, 16);
-        const keys = ["goose", "crane", "snow_goose", "swift"];
-        const spKey = keys[Math.floor(Math.random() * keys.length)];
-        const birdCount = Math.floor(rand(7, 11));
-        let apexX = rand(W * 0.28, W * 0.72);
-        if (this.flocks.length > 0) {
-          // Spawn on the opposite lateral half from retreating flock
-          const prevX = this.flocks[0].apexX;
-          apexX = prevX > W * 0.5 ? rand(W * 0.20, W * 0.42) : rand(W * 0.58, W * 0.80);
-        }
-        const apexY = H + 80;
-        this.flocks.push(this.createFlock(spKey, apexX, apexY, birdCount));
-      }
-    }
-  }
-
-  class BirdRenderer extends BaseAsciiRenderer {
-    constructor(canvas) {
-      super(canvas, Object.keys(BIRD_SPECIES), {});
-      this.ambientGlyph = "·";
-    }
-
-    render(world, dt) {
-      const { ctx, dpr, cols, ch } = this;
-      if (cols === 0) return;
-      const t = world.time;
-
-      this.consumeEvents(world);
-      this.rasterizeBirds(world.flocks, t);
-      this.diffuse(dt);
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(this.bg, 0, 0);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      this.drawDots();
-
-      ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-
-      // 1. Draw atmospheric background drifting clouds (TOP -> DOWN)
-      this.drawClouds(world, t);
-
-      // 2. Draw migrating bird formations upfront (DOWN -> TOP) in authentic stackedlol ASCII style!
-      this.drawBirdCells(world, t);
-    }
-
-    drawClouds(world, t) {
-      const { ctx, cols, rows, cw, ch } = this;
-      for (let r = 0; r < rows; r++) {
-        const py = (r + 0.5) * ch;
-        for (let c = 0; c < cols; c++) {
-          const px = (c + 0.5) * cw;
-
-          let density = 0;
-          for (const cl of world.clouds) {
-            const dx = (px - cl.x) / cl.rx;
-            const dy = (py - cl.y) / cl.ry;
-            const d2 = dx * dx + dy * dy;
-            if (d2 < 1.0) {
-              const puff = 0.12 * Math.sin(px * 0.02 + py * 0.03 + cl.puffPhase);
-              const falloff = Math.pow(1 - Math.sqrt(d2), 1.6);
-              density += cl.density * (falloff + puff);
-            }
-          }
-
-          if (density > 0.08) {
-            const dClamped = clamp(density, 0, 1);
-            const gIdx = Math.min(
-              CLOUD_DENSITY_GLYPHS.length - 1,
-              Math.floor(dClamped * CLOUD_DENSITY_GLYPHS.length)
-            );
-            const glyph = CLOUD_DENSITY_GLYPHS[gIdx];
-            if (glyph !== " ") {
-              const alpha = clamp(dClamped * 0.28, 0.06, 0.30).toFixed(3);
-              ctx.fillStyle = `rgba(148, 163, 184, ${alpha})`;
-              ctx.fillText(glyph, px, py + 1);
-            }
-          }
-        }
-      }
-    }
-
-    sampleBird(px, py, bird, flock) {
-      const bObj = {
-        x: flock.apexX + bird.relX,
-        y: flock.apexY + bird.relY,
-        vx: flock.vx,
-        vy: flock.vy,
-        wingPhase: bird.wingPhase,
-        wingPhaseOffset: bird.wingPhaseOffset,
-        size: bird.size,
-      };
-      const hit = { flag: 0, shade: 0, s: 0, v: 0 };
-      if (sampleBirdPoint(px, py, bObj, flock.species, hit)) {
-        this.hitFlag = hit.flag;
-        this.hitShade = hit.shade;
-        this.hitS = hit.s;
-        this.hitV = hit.v;
-        return true;
-      }
-      return false;
-    }
-
-    rasterizeBirds(flocks, t) {
-      const { cellFlag, cellShade, cellKey, cellDepth, cellKind, cols, rows, cw, ch, kinds } = this;
-      cellFlag.fill(0);
-
-      for (let fIdx = 0; fIdx < flocks.length; fIdx++) {
-        const f = flocks[fIdx];
-        const kindIndex = Math.max(0, kinds.indexOf(f.species));
-        const sp = BIRD_SPECIES[f.species] || BIRD_SPECIES.goose;
-
-        for (let bIdx = 0; bIdx < f.birds.length; bIdx++) {
-          const b = f.birds[bIdx];
-          const bx = f.apexX + b.relX;
-          const by = f.apexY + b.relY;
-
-          const reachX = sp.wingSpan * 0.62 * (b.size || 1) + 20;
-          const reachY = sp.bodyLen * 0.95 * (b.size || 1) + 24;
-
-          const c0 = Math.max(0, Math.floor((bx - reachX) / cw));
-          const c1 = Math.min(cols - 1, Math.floor((bx + reachX) / cw));
-          const r0 = Math.max(0, Math.floor((by - reachY) / ch));
-          const r1 = Math.min(rows - 1, Math.floor((by + reachY) / ch));
-          if (c0 > c1 || r0 > r1) continue;
-
-          for (let r = r0; r <= r1; r++) {
-            for (let c = c0; c <= c1; c++) {
-              const x = c * cw;
-              const y = r * ch;
-              let hits = 0;
-              let centerHit = this.sampleBird(x + cw / 2, y + ch / 2, b, f);
-              if (centerHit) hits++;
-              for (let k = 0; k < SUBSAMPLES.length; k += 2) {
-                if (this.sampleBird(x + SUBSAMPLES[k] * cw, y + SUBSAMPLES[k + 1] * ch, b, f)) hits++;
-              }
-              if (hits === 0) continue;
-
-              const i = r * cols + c;
-              const key = (hash3(c, r, fIdx * 31 + bIdx) * 4294967295) >>> 0;
-              cellKey[i] = key;
-              cellDepth[i] = b.size || 1.0;
-              cellKind[i] = kindIndex;
-              cellFlag[i] = this.hitFlag;
-              cellShade[i] = this.hitShade;
-            }
-          }
-        }
-      }
-    }
-
-    drawBirdCells(world, t) {
-      const { ctx, cols, rows, cw, ch, cellFlag, cellShade, cellKey, cellKind, kinds } = this;
-      const n = cols * rows;
-
-      for (let i = 0; i < n; i++) {
-        const flag = cellFlag[i];
-        if (!flag) continue;
-
-        const col = i % cols;
-        const row = (i / cols) | 0;
-        const x = col * cw;
-        const y = row * ch;
-        const key = cellKey[i];
-        const shade = cellShade[i];
-        const spKey = kinds[cellKind[i]] || "goose";
-
-        const style = getBirdCellStyling(flag, shade, spKey, key);
-
-        ctx.fillStyle = `rgb(${style.bgR}, ${style.bgG}, ${style.bgB})`;
-        ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
-
-        ctx.fillStyle = style.glyphColor;
-        ctx.fillText(style.glyph, x + cw / 2, y + ch / 2 + 1);
-      }
-    }
-  }
-
-  class BirdEngine extends BaseLoopEngine {
-    constructor(canvas) {
-      const world = new BirdWorld();
-      const renderer = new BirdRenderer(canvas);
-      super(canvas, world, renderer);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // 4. PERMANENT SEA WAVES ENGINE ("waves" / "sea_waves")
   //    Gentle, perpetual ocean swell rolling fluently from top to bottom (up -> down).
   //    Features multi-harmonic lateral distortion along the X axis so waves are
@@ -4587,11 +3901,6 @@
 
       // Drifting foam specks that float along with the swell
       this.foamSpecks = [];
-
-      // ── OCCASIONAL RANDOM SEAGULLS SOARING BOTTOM TO TOP (+Y -> -Y) ──
-      // Strictly cellular ASCII seagulls flying solo or in a loose pair (NOT in a V)
-      this.seagulls = [];
-      this.seagullTimer = rand(3, 7);
     }
 
     resize(width, height, cw = 11, ch = 15) {
@@ -4608,19 +3917,6 @@
 
       if (first || this.foamSpecks.length === 0) {
         this.seedFoamSpecks();
-      }
-
-      if (first && this.seagulls.length === 0) {
-        this.seagulls.push({
-          x: width * 0.22,
-          y: height * 0.40,
-          vx: rand(-2, 2),
-          vy: -rand(45, 55),
-          wingPhase: rand(0, TAU),
-          wingSpeed: 3.4,
-          size: 1.05,
-          species: "seagull",
-        });
       }
     }
 
@@ -4682,38 +3978,6 @@
         }
         if (f.x < -20) f.x = W + 20;
         else if (f.x > W + 20) f.x = -20;
-      }
-
-      // ── SPAWN OCCASIONAL SEAGULLS SOARING FROM BOTTOM TO TOP (+Y -> -Y) ──
-      this.seagullTimer -= dt;
-      if (this.seagullTimer <= 0 && this.seagulls.length < 2) {
-        this.seagullTimer = rand(10, 20); // Occasional appearance
-        const spawnX = Math.random() < 0.5 ? rand(W * 0.12, W * 0.35) : rand(W * 0.65, W * 0.88);
-        this.seagulls.push({
-          x: spawnX,
-          y: H + 60, // Spawn at the bottom (+Y)
-          vx: rand(-4, 4),
-          vy: -rand(44, 58), // Fly upwards (-Y)
-          wingPhase: rand(0, TAU),
-          wingSpeed: 3.4,
-          size: rand(0.95, 1.15),
-          species: "seagull",
-        });
-      }
-
-      // Update seagulls
-      for (let i = this.seagulls.length - 1; i >= 0; i--) {
-        const g = this.seagulls[i];
-        g.x += g.vx * dt;
-        g.y += g.vy * dt;
-        g.wingPhase += dt * g.wingSpeed;
-        g.vx += Math.sin(this.time * 0.5 + g.wingPhase) * 1.5 * dt;
-        g.vx = clamp(g.vx, -10, 10);
-
-        // Flown completely past the top boundary
-        if (g.y < -80 || g.x < -80 || g.x > W + 80) {
-          this.seagulls.splice(i, 1);
-        }
       }
     }
 
@@ -4802,7 +4066,6 @@
       this.drawSeaWaves(world, t);
       this.drawFoamSpecks(world, t);
       this.drawRipples(world, t);
-      this.drawSeagulls(world, t);
     }
 
     drawSeaWaves(world, t) {
@@ -4891,57 +4154,6 @@
         }
       }
     }
-
-    // ── OCCASIONAL SOLITARY / PAIR SEAGULLS SOARING ACROSS WAVES ──
-    // Rendered with the exact same authentic stackedlol cellular ASCII aesthetic as migrating birds!
-    drawSeagulls(world, t) {
-      const { ctx, cw, ch, cols, rows } = this;
-      const outHit = { flag: 0, shade: 0, s: 0, v: 0 };
-      const sp = BIRD_SPECIES.seagull;
-
-      for (let gIdx = 0; gIdx < world.seagulls.length; gIdx++) {
-        const g = world.seagulls[gIdx];
-        const reachX = sp.wingSpan * 0.62 * (g.size || 1) + 20;
-        const reachY = sp.bodyLen * 0.95 * (g.size || 1) + 24;
-
-        const c0 = Math.max(0, Math.floor((g.x - reachX) / cw));
-        const c1 = Math.min(cols - 1, Math.floor((g.x + reachX) / cw));
-        const r0 = Math.max(0, Math.floor((g.y - reachY) / ch));
-        const r1 = Math.min(rows - 1, Math.floor((g.y + reachY) / ch));
-        if (c0 > c1 || r0 > r1) continue;
-
-        for (let r = r0; r <= r1; r++) {
-          for (let c = c0; c <= c1; c++) {
-            const x = c * cw;
-            const y = r * ch;
-            let hits = 0;
-            let centerHit = sampleBirdPoint(x + cw / 2, y + ch / 2, g, "seagull", outHit);
-            let bestFlag = outHit.flag;
-            let bestShade = outHit.shade;
-            if (centerHit) hits++;
-            for (let k = 0; k < SUBSAMPLES.length; k += 2) {
-              if (sampleBirdPoint(x + SUBSAMPLES[k] * cw, y + SUBSAMPLES[k + 1] * ch, g, "seagull", outHit)) {
-                hits++;
-                if (!bestFlag) {
-                  bestFlag = outHit.flag;
-                  bestShade = outHit.shade;
-                }
-              }
-            }
-            if (hits === 0 || !bestFlag) continue;
-
-            const key = (hash3(c, r, gIdx * 73 + 19) * 4294967295) >>> 0;
-            const style = getBirdCellStyling(bestFlag, bestShade, "seagull", key);
-
-            ctx.fillStyle = `rgb(${style.bgR}, ${style.bgG}, ${style.bgB})`;
-            ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
-
-            ctx.fillStyle = style.glyphColor;
-            ctx.fillText(style.glyph, x + cw / 2, y + ch / 2 + 1);
-          }
-        }
-      }
-    }
   }
 
   class SeaWaveEngine extends BaseLoopEngine {
@@ -4963,13 +4175,11 @@
   window.BacteriaEngine = BacteriaEngine;
   window.MantaEngine = MantaEngine;
   window.TurtleEngine = TurtleEngine;
-  window.BirdEngine = BirdEngine;
   window.SeaWaveEngine = SeaWaveEngine;
   window.SoundWaveEngine = SoundWaveEngine;
 
   const THEME_CREDITS = {
     sharks: "ASCII Sharks by stackedlol",
-    birds: "ASCII Migrating Birds in V-Formation • Canada Geese, Cranes, Ibises, Swifts",
     turtles: "ASCII Sea Turtles • Loggerhead, Green, Olive Ridley, Hawksbill",
     jellyfish: "ASCII Jellyfish • Inspired by stackedlol",
     bacteria: "ASCII Game of Life • John Horton Conway (1970)",
@@ -4994,12 +4204,9 @@
         ? "waves"
         : themeName === "turtle" || themeName === "tortuga" || themeName === "tortugas"
         ? "turtles"
-        : themeName === "bird" || themeName === "pajaros" || themeName === "aves" || themeName === "v_birds"
-        ? "birds"
         : themeName;
     const normalized = [
       "sharks",
-      "birds",
       "turtles",
       "jellyfish",
       "bacteria",
@@ -5018,9 +4225,7 @@
     }
 
     activeThemeName = normalized;
-    if (normalized === "birds") {
-      activeEngine = new BirdEngine(canvas);
-    } else if (normalized === "turtles") {
+    if (normalized === "turtles") {
       activeEngine = new TurtleEngine(canvas);
     } else if (normalized === "jellyfish") {
       activeEngine = new JellyfishEngine(canvas);
