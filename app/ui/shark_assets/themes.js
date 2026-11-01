@@ -3333,6 +3333,7 @@
       // ── 2. CARAPACE / SHELL (s from 0.18 to 0.78, narrow streamlined dark dome) ──
       const shellStart = 0.18;
       const shellEnd = 0.78;
+      let curShellHalfW = 0;
       if (s >= shellStart && s <= shellEnd) {
         const pShell = (s - shellStart) / (shellEnd - shellStart); // 0 at anterior nuchal notch, 1 at posterior
         // Broad, natural carapace dome
@@ -3354,6 +3355,7 @@
         }
 
         const halfW = maxShellW * (shellProf + serration);
+        curShellHalfW = halfW;
         if (a <= halfW) {
           const rShell = a / (halfW || 1); // 0 at spine ridge, 1 at outer rim
 
@@ -3400,7 +3402,7 @@
       const sShoulder = 0.22;
       const strokeSin = Math.sin(t.strokeCycle);
       const strokeCos = Math.cos(t.strokeCycle);
-      const aMin = L * 0.08;
+      const aMin = Math.max(L * 0.08, curShellHalfW * 0.96);
 
       // Smooth continuous flipper activity (0 = anchored brake, 1 = full power stroke):
       // bestSign > 0 is LEFT flipper; bestSign < 0 is RIGHT flipper.
@@ -3448,7 +3450,7 @@
 
       // ── 4. REAR FLIPPERS (PELVIC STEERING RUDDERS) ──
       const rearRootS = 0.70;
-      const rearMinA = L * 0.05;
+      const rearMinA = Math.max(L * 0.05, curShellHalfW * 0.96);
       const rearMaxA = L * 0.28;
       if (a >= rearMinA && a <= rearMaxA && s >= 0.62 && s <= 0.94) {
         const rearSpanProg = (a - rearMinA) / (rearMaxA - rearMinA);
@@ -3975,39 +3977,39 @@
   // Exactly 4 active animals in the waters, taking turns entering and exiting off-screen.
 
   const MIXED_SPECIES_CATALOG = [
-    // 0: Shark 1
-    { species: "shark", kind: "hammerhead", size: 1.00, label: "Hammerhead Shark" },
-    // 1: Manta 1
-    { species: "manta", kind: "giant_manta", size: 0.96, label: "Giant Oceanic Manta" },
-    // 2: Turtle 1
-    { species: "turtle", kind: "loggerhead", size: 0.94, label: "Loggerhead Turtle" },
-    // 3: Shark 2
-    { species: "shark", kind: "classic", size: 0.88, label: "Classic Shark" },
-    // 4: Manta 2
-    { species: "manta", kind: "spotted_eagle", size: 0.88, label: "Spotted Eagle Ray" },
-    // 5: Turtle 2
-    { species: "turtle", kind: "greenturtle", size: 0.90, label: "Green Sea Turtle" },
-    // 6: Shark 3
-    { species: "shark", kind: "thresher", size: 0.92, label: "Thresher Shark" },
-    // 7: Manta 3
-    { species: "manta", kind: "reef_manta", size: 0.80, label: "Reef Manta" },
-    // 8: Turtle 3
-    { species: "turtle", kind: "hawksbill", size: 0.84, label: "Hawksbill Turtle" },
-    // 9: Shark 4
-    { species: "shark", kind: "mako", size: 0.78, label: "Mako Shark" },
-    // 10: Manta 4
-    { species: "manta", kind: "leopard_ray", size: 0.78, label: "Leopard Ray" },
-    // 11: Turtle 4
-    { species: "turtle", kind: "olive_ridley", size: 0.78, label: "Olive Ridley Turtle" },
+    // 0: Shark 1 (Great Hammerhead - Apex Predator)
+    { species: "shark", kind: "hammerhead", size: 1.35, label: "Hammerhead Shark" },
+    // 1: Manta 1 (Giant Oceanic Manta - Majestic Wingspan)
+    { species: "manta", kind: "giant_manta", size: 1.04, label: "Giant Oceanic Manta" },
+    // 2: Turtle 1 (Loggerhead Sea Turtle - Sturdy Armor)
+    { species: "turtle", kind: "loggerhead", size: 0.84, label: "Loggerhead Turtle" },
+    // 3: Shark 2 (Classic Shark - Power & Grace)
+    { species: "shark", kind: "classic", size: 1.25, label: "Classic Shark" },
+    // 4: Manta 2 (Spotted Eagle Ray)
+    { species: "manta", kind: "spotted_eagle", size: 0.92, label: "Spotted Eagle Ray" },
+    // 5: Turtle 2 (Green Sea Turtle)
+    { species: "turtle", kind: "greenturtle", size: 0.80, label: "Green Sea Turtle" },
+    // 6: Shark 3 (Thresher Shark - Elongated Whip Caudal Fin)
+    { species: "shark", kind: "thresher", size: 1.28, label: "Thresher Shark" },
+    // 7: Manta 3 (Reef Manta)
+    { species: "manta", kind: "reef_manta", size: 0.86, label: "Reef Manta" },
+    // 8: Turtle 3 (Hawksbill Turtle)
+    { species: "turtle", kind: "hawksbill", size: 0.76, label: "Hawksbill Turtle" },
+    // 9: Shark 4 (Shortfin Mako - Speed Torpedo)
+    { species: "shark", kind: "mako", size: 1.20, label: "Mako Shark" },
+    // 10: Manta 4 (Leopard Ray)
+    { species: "manta", kind: "leopard_ray", size: 0.82, label: "Leopard Ray" },
+    // 11: Turtle 4 (Olive Ridley Turtle)
+    { species: "turtle", kind: "olive_ridley", size: 0.72, label: "Olive Ridley Turtle" },
   ];
 
   const SHARK_SHAPES_FALLBACK = {
     classic: {
-      halfWidth: (s) => (s < 0.13 ? 0.09 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.95) : (s < 0.3 ? 0.09 + 0.016 * smoothstep(0.13, 0.3, s) : (s < 0.84 ? 0.019 + 0.087 * Math.pow(1 - (s - 0.3) / 0.54, 1.25) : 0.019 * (1 - (s - 0.84) / 0.16) + 0.012 * Math.sin(((s - 0.84) / 0.16) * Math.PI)))),
-      pectoral: [0.15, 0.43, 0.55, 0.26],
+      halfWidth: (s) => (s < 0.13 ? 0.095 * Math.pow(Math.sin(((s / 0.13) * Math.PI) / 2), 0.95) : (s < 0.3 ? 0.095 + 0.022 * smoothstep(0.13, 0.3, s) : (s < 0.84 ? 0.022 + 0.095 * Math.pow(1 - (s - 0.3) / 0.54, 1.25) : 0.022 * (1 - (s - 0.84) / 0.16) + 0.013 * Math.sin(((s - 0.84) / 0.16) * Math.PI)))),
+      pectoral: [0.15, 0.43, 0.55, 0.27],
       falcate: true,
-      pelvic: [0.57, 0.65, 0.69, 0.085],
-      caudal: 0.085,
+      pelvic: [0.57, 0.65, 0.69, 0.09],
+      caudal: 0.095,
       dorsal: [0.33, 0.47],
       secondDorsal: [0.71, 0.76],
       eye: [0.1, 0.14],
@@ -4015,12 +4017,12 @@
       tint: [0.94, 0.97, 1.03],
     },
     hammerhead: {
-      halfWidth: (s) => (s < 0.06 ? 0.045 : (s < 0.3 ? 0.045 + 0.061 * smoothstep(0.06, 0.3, s) : (s < 0.84 ? 0.019 + 0.087 * Math.pow(1 - (s - 0.3) / 0.54, 1.25) : 0.019 * (1 - (s - 0.84) / 0.16) + 0.012 * Math.sin(((s - 0.84) / 0.16) * Math.PI)) * 0.92)),
-      head: { span: 0.18, sweep: 0.035, depth: 0.09, notch: 0 },
-      pectoral: [0.17, 0.4, 0.5, 0.22],
+      halfWidth: (s) => (s < 0.06 ? 0.075 : (s < 0.3 ? 0.075 + 0.040 * smoothstep(0.06, 0.3, s) : (s < 0.84 ? 0.022 + 0.090 * Math.pow(1 - (s - 0.3) / 0.54, 1.25) : 0.022 * (1 - (s - 0.84) / 0.16) + 0.012 * Math.sin(((s - 0.84) / 0.16) * Math.PI)) * 0.95)),
+      head: { span: 0.27, sweep: 0.035, depth: 0.10, notch: 0.012 },
+      pectoral: [0.17, 0.4, 0.5, 0.25],
       falcate: true,
-      pelvic: [0.56, 0.63, 0.67, 0.075],
-      caudal: 0.11,
+      pelvic: [0.56, 0.63, 0.67, 0.085],
+      caudal: 0.12,
       dorsal: [0.28, 0.44],
       secondDorsal: [0.7, 0.74],
       eye: null,
@@ -4112,8 +4114,8 @@
         const qy = (i < 2 ? H * 0.28 : H * 0.72) + rand(-H * 0.06, H * 0.06);
         const heading = baseHeadings[i] + rand(-0.10, 0.10);
         const a = this.createAnimal(i, spec, qx, qy, heading, baseLen);
-        // Stagger initial lifespans so they exit in an orderly, unhurried sequence
-        a.cruiseDuration = 16.0 + i * 9.0;
+        // Stagger initial lifespans so species rotate promptly, smoothly, and regularly
+        a.cruiseDuration = 6.0 + i * 5.5;
         this.animals.push(a);
       }
 
@@ -4168,11 +4170,12 @@
         waitTimer: 0,
         destX: qx + Math.cos(heading) * 350,
         destY: qy + Math.sin(heading) * 350,
-        openSpaceTimer: rand(8, 16),
+        openSpaceTimer: rand(8, 14),
         activeTime: 0,
-        cruiseDuration: rand(24, 34),
+        cruiseDuration: rand(18, 26),
         isExiting: false,
-        speed: isShark ? rand(27, 32) : (isManta ? rand(22, 26) : 22),
+        replacementSpawned: false,
+        speed: isShark ? rand(30, 36) : (isManta ? rand(24, 28) : 24),
         depth: rand(0.55, 0.95),
         phase: rand(0, TAU),
         strokeCycle: rand(0, TAU),
@@ -4195,32 +4198,32 @@
       // Find an unpopulated target zone in the open ocean:
       const [targetX, targetY] = this.getEmptiestOceanTarget(-1);
 
-      // Spawn from off-screen edge oriented towards the empty sector:
+      // Spawn from edge boundary facing into the empty sector:
       let spawnX, spawnY;
       const dx = targetX - W * 0.5;
       const dy = targetY - H * 0.5;
 
       if (Math.abs(dx) > Math.abs(dy)) {
         if (dx < 0) {
-          spawnX = -140;
-          spawnY = clamp(targetY + rand(-H * 0.12, H * 0.12), H * 0.15, H * 0.85);
+          spawnX = -8;
+          spawnY = clamp(targetY + rand(-H * 0.10, H * 0.10), H * 0.18, H * 0.82);
         } else {
-          spawnX = W + 140;
-          spawnY = clamp(targetY + rand(-H * 0.12, H * 0.12), H * 0.15, H * 0.85);
+          spawnX = W + 8;
+          spawnY = clamp(targetY + rand(-H * 0.10, H * 0.10), H * 0.18, H * 0.82);
         }
       } else {
         if (dy < 0) {
-          spawnX = clamp(targetX + rand(-W * 0.12, W * 0.12), W * 0.15, W * 0.85);
-          spawnY = -140;
+          spawnX = clamp(targetX + rand(-W * 0.10, W * 0.10), W * 0.18, W * 0.82);
+          spawnY = -8;
         } else {
-          spawnX = clamp(targetX + rand(-W * 0.12, W * 0.12), W * 0.15, W * 0.85);
-          spawnY = H + 140;
+          spawnX = clamp(targetX + rand(-W * 0.10, W * 0.10), W * 0.18, W * 0.82);
+          spawnY = H + 8;
         }
       }
 
-      const heading = Math.atan2(targetY - spawnY, targetX - spawnX) + rand(-0.06, 0.06);
+      const heading = Math.atan2(targetY - spawnY, targetX - spawnX);
       const a = this.createAnimal(this.nextAnimalId++, spec, spawnX, spawnY, heading, baseLen);
-      a.cruiseDuration = rand(24, 34);
+      a.cruiseDuration = rand(18, 26);
       a.destX = targetX;
       a.destY = targetY;
       this.animals.push(a);
@@ -4231,7 +4234,7 @@
     isAnimalFullyOffscreen(a) {
       const { width: W, height: H } = this;
       const N = a.nodeCount;
-      const margin = 50;
+      const margin = 25;
       for (let k = 0; k < N; k++) {
         const x = a.nodes[k * 2];
         const y = a.nodes[k * 2 + 1];
@@ -4246,26 +4249,33 @@
       const { width: W, height: H } = this;
       const hx = a.nodes[0];
       const hy = a.nodes[1];
-      const fx = Math.cos(a.heading);
-      const fy = Math.sin(a.heading);
 
-      // Evaluate the 4 screen boundaries to exit via the closest edge in forward path:
-      // "lo que hay fuera del espacio tiene que ser su direccion, porque si no van hacia fuera no puede entrar otro animal"
-      const candidateExits = [];
-      if (fx > -0.2) candidateExits.push([W + 240, hy + fy * 120, W - hx]);
-      if (fx < 0.2) candidateExits.push([-240, hy + fy * 120, hx]);
-      if (fy > -0.2) candidateExits.push([hx + fx * 120, H + 240, H - hy]);
-      if (fy < 0.2) candidateExits.push([hx + fx * 120, -240, hy]);
+      // 4 candidate exit points just past the screen boundaries:
+      const candidateExits = [
+        [W + 140, hy, W - hx],      // East
+        [-140, hy, hx],             // West
+        [hx, H + 140, H - hy],      // South
+        [hx, -140, hy],             // North
+      ];
 
-      candidateExits.sort((c1, c2) => c1[2] - c2[2]);
-      const chosen = candidateExits.length > 0 ? candidateExits[0] : [W + 240, hy];
-      const exitX = chosen[0];
-      const exitY = chosen[1];
+      let bestScore = Infinity;
+      let chosen = candidateExits[0];
 
-      a.targetHeading = Math.atan2(exitY - hy, exitX - hx);
+      for (const [ex, ey, dist] of candidateExits) {
+        const bearing = Math.atan2(ey - hy, ex - hx);
+        const diff = Math.abs(angleDiff(a.heading, bearing));
+        const score = dist + (diff / Math.PI) * 240;
+        if (score < bestScore) {
+          bestScore = score;
+          chosen = [ex, ey];
+        }
+      }
+
+      a.targetHeading = Math.atan2(chosen[1] - hy, chosen[0] - hx);
       a.isTurning = true;
       a.isExiting = true;
-      a.turnCooldown = 30.0;
+      a.replacementSpawned = false;
+      a.turnCooldown = 20.0;
     }
 
     getEmptiestOceanTarget(animalIndex) {
@@ -4337,7 +4347,9 @@
       const creditSpan = document.querySelector(".repo-credit span");
       if (!creditSpan) return;
       if (this.animals && this.animals.length > 0) {
-        const names = this.animals.map(a => a.label.split(" ")[0] || a.species).join(", ");
+        const active = this.animals.filter(a => !a.isExiting);
+        const list = active.length >= 4 ? active.slice(0, 4) : this.animals.slice(0, 4);
+        const names = list.map(a => a.label.split(" ")[0] || a.species).join(", ");
         creditSpan.textContent = `ASCII Marine Safari • Present: ${names} (12 Species Rotating)`;
       }
     }
@@ -4365,16 +4377,37 @@
         }
       }
 
+      // Check if an exiting animal's head has crossed into outside space:
+      // "porque si no van hacia fuera no puede entrar otro animal"
+      for (let i = 0; i < animals.length; i++) {
+        const a = animals[i];
+        if (a.isExiting && !a.replacementSpawned) {
+          const hx = a.nodes[0];
+          const hy = a.nodes[1];
+          if (hx < 0 || hx > W || hy < 0 || hy > H) {
+            a.replacementSpawned = true;
+            this.spawnAnimalFromEdge(this.catalogIndex);
+            this.catalogIndex = (this.catalogIndex + 1) % MIXED_SPECIES_CATALOG.length;
+          }
+        }
+      }
+
       // Check if any exiting animal has completely left off-screen:
       for (let i = animals.length - 1; i >= 0; i--) {
         const a = animals[i];
         if (a.isExiting && this.isAnimalFullyOffscreen(a)) {
+          if (!a.replacementSpawned) {
+            this.spawnAnimalFromEdge(this.catalogIndex);
+            this.catalogIndex = (this.catalogIndex + 1) % MIXED_SPECIES_CATALOG.length;
+          }
           animals.splice(i, 1);
-          // Only when an animal is completely outside can the next one enter!
-          // "porque si no van hacia fuera no puede entrar otro animal"
-          this.spawnAnimalFromEdge(this.catalogIndex);
-          this.catalogIndex = (this.catalogIndex + 1) % MIXED_SPECIES_CATALOG.length;
         }
+      }
+
+      // Safeguard: Ensure there are ALWAYS at least 4 animals in the waters:
+      while (animals.length < 4) {
+        this.spawnAnimalFromEdge(this.catalogIndex);
+        this.catalogIndex = (this.catalogIndex + 1) % MIXED_SPECIES_CATALOG.length;
       }
 
       // ── B. MARITIME CROSSING & LOOKAHEAD BETWEEN ACTIVE ANIMALS ──
@@ -4555,7 +4588,7 @@
         // Smooth steering:
         const diff = angleDiff(a.heading, a.targetHeading);
         if (Math.abs(diff) > 0.02) {
-          const maxTurn = 0.16 * dt;
+          const maxTurn = (a.isExiting ? 0.38 : 0.16) * dt;
           const step = clamp(diff, -maxTurn, maxTurn);
           a.heading += step;
           a.turn = step / dt;
@@ -4588,9 +4621,14 @@
           a.phase += dt * (1.6 + a.speed / 40);
         }
 
+        let curSpeed = a.speed;
+        if (a.isExiting) {
+          curSpeed = Math.max(a.speed, 28) * 1.55;
+        }
+
         // Pure forward translation along heading:
-        nodes[0] += Math.cos(a.heading) * a.speed * dt;
-        nodes[1] += Math.sin(a.heading) * a.speed * dt;
+        nodes[0] += Math.cos(a.heading) * curSpeed * dt;
+        nodes[1] += Math.sin(a.heading) * curSpeed * dt;
 
         // Kinematic follow-the-leader spine:
         const seg = L / (a.nodeCount - 1);
@@ -5121,39 +5159,7 @@
         }
       }
 
-      // 2. Powerful Front Flippers:
-      const strokeCos = Math.cos(t.strokeCycle);
-      const strokeSin = Math.sin(t.strokeCycle);
-      const flipExtension = (strokeSin < 0) ? (1.0 + 0.20 * (-strokeSin)) : (1.0 - 0.58 * Math.pow(strokeSin, 1.25));
-      const flipSpan = L * (shape.flipperSpan || 0.49) * flipExtension;
-      const sweepOffset = (0.22 + 0.10 + 0.28 * Math.pow(Math.max(0, strokeSin), 1.15)) * L;
-
-      for (const sign of [-1, 1]) {
-        const rootS = 0.22;
-        const rootArc = rootS * this.carapaceArcTotal;
-        const rootNode = clamp(Math.floor(rootS * (carapaceNodes - 1)), 0, carapaceNodes - 2);
-        const rx = spine[rootNode * 2], ry = spine[rootNode * 2 + 1];
-        const tipX = rx - fx * sweepOffset + nx * (sign * flipSpan);
-        const tipY = ry - fy * sweepOffset + ny * (sign * flipSpan);
-        const abx = tipX - rx, aby = tipY - ry;
-        const ab2 = abx * abx + aby * aby || 1e-6;
-        const apx2 = px - rx, apy2 = py - ry;
-        const u = clamp((apx2 * abx + apy2 * aby) / ab2, 0, 1);
-        const qx = rx + abx * u, qy = ry + aby * u;
-        const dFlipper = Math.hypot(px - qx, py - qy);
-        const flipWidth = L * 0.088 * (1 - u * 0.72) + 2.0;
-
-        if (dFlipper <= flipWidth) {
-          this.hitDist = 0;
-          this.hitS = 0.20 + u * 0.30;
-          this.hitV = dFlipper * sign;
-          this.hitFlag = FLAG_FIN;
-          this.hitShade = 0.68 + 0.25 * (1 - u);
-          return true;
-        }
-      }
-
-      // 3. Carapace (Hard Armored Shell):
+      // 2. Carapace (Hard Armored Shell - Dominant Top Layer):
       const shellW = L * (shape.carapaceWidth || 0.32) * Math.sin(clamp(sc, 0, 1) * Math.PI);
       if (v <= shellW && sc > 0.08 && sc < 0.95) {
         const r = v / (shellW || 1);
@@ -5181,22 +5187,69 @@
         return true;
       }
 
+      // 3. Powerful Front Flippers (Emerge from underneath the carapace):
+      if (v > shellW * 0.90) {
+        const strokeCos = Math.cos(t.strokeCycle);
+        const strokeSin = Math.sin(t.strokeCycle);
+        const flipExtension = (strokeSin < 0) ? (1.0 + 0.20 * (-strokeSin)) : (1.0 - 0.58 * Math.pow(strokeSin, 1.25));
+        const flipSpan = L * (shape.flipperSpan || 0.49) * flipExtension;
+        const sweepOffset = (0.22 + 0.10 + 0.28 * Math.pow(Math.max(0, strokeSin), 1.15)) * L;
+
+        for (const sign of [-1, 1]) {
+          const rootS = 0.22;
+          const rootNode = clamp(Math.floor(rootS * (carapaceNodes - 1)), 0, carapaceNodes - 2);
+          const rx = spine[rootNode * 2], ry = spine[rootNode * 2 + 1];
+          const tipX = rx - fx * sweepOffset + nx * (sign * flipSpan);
+          const tipY = ry - fy * sweepOffset + ny * (sign * flipSpan);
+          const abx = tipX - rx, aby = tipY - ry;
+          const ab2 = abx * abx + aby * aby || 1e-6;
+          const apx2 = px - rx, apy2 = py - ry;
+          const u = clamp((apx2 * abx + apy2 * aby) / ab2, 0, 1);
+          const qx = rx + abx * u, qy = ry + aby * u;
+          const dFlipper = Math.hypot(px - qx, py - qy);
+          const flipWidth = L * 0.088 * (1 - u * 0.72) + 2.0;
+
+          if (dFlipper <= flipWidth) {
+            this.hitDist = 0;
+            this.hitS = 0.20 + u * 0.30;
+            this.hitV = dFlipper * sign;
+            this.hitFlag = FLAG_FIN;
+            this.hitShade = 0.68 + 0.25 * (1 - u);
+            return true;
+          }
+        }
+      }
+
       // 4. Rear Flippers:
-      const rearRootS = 0.88;
-      const rearNode = Math.min(carapaceNodes - 1, Math.floor(rearRootS * (carapaceNodes - 1)));
-      const rrx = spine[rearNode * 2], rry = spine[rearNode * 2 + 1];
-      for (const sign of [-1, 1]) {
-        const rTipX = rrx - fx * (L * 0.14) + nx * (sign * L * 0.16);
-        const rTipY = rry - fy * (L * 0.14) + ny * (sign * L * 0.16);
-        const abx = rTipX - rrx, aby = rTipY - rry;
-        const ab2 = abx * abx + aby * aby || 1e-6;
-        const apx2 = px - rrx, apy2 = py - rry;
-        const u = clamp((apx2 * abx + apy2 * aby) / ab2, 0, 1);
-        const dRear = Math.hypot(px - (rrx + abx * u), py - (rry + aby * u));
-        if (dRear <= L * 0.055 * (1 - u * 0.6) + 1.5) {
+      if (v > shellW * 0.90) {
+        const rearRootS = 0.88;
+        const rearNode = Math.min(carapaceNodes - 1, Math.floor(rearRootS * (carapaceNodes - 1)));
+        const rrx = spine[rearNode * 2], rry = spine[rearNode * 2 + 1];
+        for (const sign of [-1, 1]) {
+          const rTipX = rrx - fx * (L * 0.14) + nx * (sign * L * 0.16);
+          const rTipY = rry - fy * (L * 0.14) + ny * (sign * L * 0.16);
+          const abx = rTipX - rrx, aby = rTipY - rry;
+          const ab2 = abx * abx + aby * aby || 1e-6;
+          const apx2 = px - rrx, apy2 = py - rry;
+          const u = clamp((apx2 * abx + apy2 * aby) / ab2, 0, 1);
+          const dRear = Math.hypot(px - (rrx + abx * u), py - (rry + aby * u));
+          if (dRear <= L * 0.055 * (1 - u * 0.6) + 1.5) {
+            this.hitDist = 0;
+            this.hitFlag = FLAG_FIN;
+            this.hitShade = 0.60;
+            return true;
+          }
+        }
+      }
+
+      // 5. Short Tail:
+      if (sc >= 0.88 && sc <= 0.99) {
+        const tailProg = (sc - 0.88) / 0.11;
+        const tailW = L * 0.028 * (1 - tailProg);
+        if (v <= tailW) {
           this.hitDist = 0;
           this.hitFlag = FLAG_FIN;
-          this.hitShade = 0.60;
+          this.hitShade = 0.55;
           return true;
         }
       }
@@ -5257,7 +5310,7 @@
             minY = Math.min(minY, spine[k * 2 + 1]);
             maxY = Math.max(maxY, spine[k * 2 + 1]);
           }
-          const reach = L * 0.36;
+          const reach = L * 0.42;
           const c0 = Math.max(0, Math.floor((minX - reach) / cw));
           const c1 = Math.min(cols - 1, Math.floor((maxX + reach) / cw));
           const r0 = Math.max(0, Math.floor((minY - reach) / ch));
@@ -5717,6 +5770,7 @@
       const world = new MixedOceanWorld();
       const renderer = new MixedOceanRenderer(canvas);
       super(canvas, world, renderer);
+      window.oceanMixWorld = world;
     }
   }
 

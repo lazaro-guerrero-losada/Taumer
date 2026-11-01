@@ -664,15 +664,15 @@ const SHAPES = {
   },
   hammerhead: {
     halfWidth: (s) => {
-      if (s < 0.06) return 0.045;
-      if (s < 0.3) return 0.045 + 0.061 * smoothstep(0.06, 0.3, s);
-      return classicHalfWidth(s) * 0.92;
+      if (s < 0.06) return 0.075;
+      if (s < 0.3) return 0.075 + 0.040 * smoothstep(0.06, 0.3, s);
+      return classicHalfWidth(s) * 0.95;
     },
-    head: { span: 0.18, sweep: 0.035, depth: 0.09, notch: 0 },
-    pectoral: [0.17, 0.4, 0.5, 0.22],
+    head: { span: 0.27, sweep: 0.035, depth: 0.10, notch: 0.012 },
+    pectoral: [0.17, 0.4, 0.5, 0.25],
     falcate: true,
-    pelvic: [0.56, 0.63, 0.67, 0.075],
-    caudal: 0.11,
+    pelvic: [0.56, 0.63, 0.67, 0.085],
+    caudal: 0.12,
     dorsal: [0.28, 0.44],
     secondDorsal: [0.7, 0.74],
     eye: null,
