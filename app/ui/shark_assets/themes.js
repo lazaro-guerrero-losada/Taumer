@@ -3233,21 +3233,29 @@
       const baseLen = clamp(minSide * 0.28, 140, 220);
       const count = this.specs.length;
 
+      // Clear, purposeful straight-line oceanic transect headings (NO CIRCLES!)
+      const baseHeadings = [
+        0.18,              // Swimming East-Northeast (~10 deg)
+        Math.PI - 0.22,    // Swimming West-Northwest (~167 deg)
+        Math.PI * 0.52,    // Swimming South-Southeast (~94 deg)
+        -Math.PI * 0.48,   // Swimming North-Northwest (~-86 deg)
+      ];
+
       this.turtles = [];
       for (let i = 0; i < count; i++) {
         const spec = this.specs[i];
         const L = baseLen * (spec.size || 1.0);
-        const fAng = (i / count) * TAU + rand(-0.35, 0.35);
-        const rad = minSide * rand(0.20, 0.38);
-        const hx = W / 2 + Math.cos(fAng) * rad;
-        const hy = H / 2 + Math.sin(fAng) * rad;
-        const heading = fAng + Math.PI / 2 + rand(-0.3, 0.3);
+
+        // Distribute spawn positions cleanly across screen quadrants
+        const qx = (i % 2 === 0 ? W * 0.26 : W * 0.74) + rand(-W * 0.08, W * 0.08);
+        const qy = (i < 2 ? H * 0.28 : H * 0.72) + rand(-H * 0.08, H * 0.08);
+        const heading = baseHeadings[i % baseHeadings.length] + rand(-0.12, 0.12);
 
         const nodes = new Float32Array(TURTLE_NODES * 2);
         const seg = L / (TURTLE_NODES - 1);
         for (let k = 0; k < TURTLE_NODES; k++) {
-          nodes[k * 2] = hx - Math.cos(heading) * seg * k;
-          nodes[k * 2 + 1] = hy - Math.sin(heading) * seg * k;
+          nodes[k * 2] = qx - Math.cos(heading) * seg * k;
+          nodes[k * 2 + 1] = qy - Math.sin(heading) * seg * k;
         }
 
         this.turtles.push({
@@ -3256,14 +3264,14 @@
           length: L,
           nodes,
           heading,
-          speed: 22,
+          targetHeading: heading, // Locked onto straight cruising path
           turn: 0,
+          isTurning: false,
+          turnCooldown: 0,
           depth: rand(0.55, 0.95),
           phase: rand(0, TAU),
           strokeCycle: (i * (TAU / count)) + rand(0, 0.6), // Staggered swimming strokes!
-          orbitRadius: minSide * (0.24 + 0.10 * (i % 3)),
-          orbitDir: (i % 2 === 0 ? 1 : -1),
-          wander: 0,
+          speed: 22,
           alarm: 0,
           fleeX: 0,
           fleeY: 0,
@@ -3312,9 +3320,7 @@
 
     stepTurtles(dt) {
       const { turtles, width: W, height: H, pointer } = this;
-      const minSide = Math.min(W, H) || 600;
-      const cxW = W / 2;
-      const cyW = H / 2;
+      const pad = 125; // Margin from screen boundaries for straight transect turns
 
       for (let i = 0; i < turtles.length; i++) {
         const t = turtles[i];
@@ -3323,97 +3329,97 @@
         const hx = nodes[0];
         const hy = nodes[1];
 
-        // 1. Oceanic corridor cruising guidance (continuous sweeping orbital flow)
-        const rx = (hx - cxW) / (W / minSide);
-        const ry = hy - cyW;
-        const r = Math.hypot(rx, ry) || 1;
-        const radius = t.orbitRadius * (1 + 0.14 * Math.sin(this.time * 0.05 + t.id * 1.7));
-        const radial = clamp((radius - r) / radius, -1, 1);
-        let dx = ((-ry / r) * t.orbitDir + (rx / r) * radial * 0.85) * 0.65;
-        let dy = ((rx / r) * t.orbitDir + (ry / r) * radial * 0.85) * 0.65;
+        t.turnCooldown -= dt;
 
-        // 2. Smooth Brownian wander (organic deviation, avoids robotic repetition)
-        t.wander = clamp(t.wander + (Math.random() - 0.5) * dt * 0.45, -0.65, 0.65);
-        dx += Math.cos(t.heading + t.wander) * 0.35;
-        dy += Math.sin(t.heading + t.wander) * 0.35;
-
-        // 3. Click splash fleeing response
-        if (t.alarm > 0.02) {
-          t.alarm *= Math.exp(-dt * 1.2);
-          const fx = hx - t.fleeX;
-          const fy = hy - t.fleeY;
-          const fd = Math.hypot(fx, fy) || 1;
-          dx += (fx / fd) * t.alarm * 2.8;
-          dy += (fy / fd) * t.alarm * 2.8;
+        // 1. Boundary detection: When approaching an edge, initiate a smooth turn towards open water
+        const nearEdge = (hx < pad || hx > W - pad || hy < pad || hy > H - pad);
+        if (nearEdge && t.turnCooldown <= 0 && !t.isTurning) {
+          // Point back across the central expanse of the ocean
+          const targetX = W / 2 + rand(-W * 0.22, W * 0.22);
+          const targetY = H / 2 + rand(-H * 0.22, H * 0.22);
+          t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.18, 0.18);
+          t.isTurning = true;
+          t.turnCooldown = 6.0; // Maintain the new straight line for at least 6s
         }
 
-        // 4. Gentle pointer avoidance
+        // 2. Click splash fleeing response
+        if (t.alarm > 0.02) {
+          t.alarm *= Math.exp(-dt * 1.5);
+          const fx = hx - t.fleeX;
+          const fy = hy - t.fleeY;
+          t.targetHeading = Math.atan2(fy, fx);
+          t.isTurning = true;
+        }
+
+        // 3. Pointer avoidance
         if (pointer.active) {
           const pdx = hx - pointer.x;
           const pdy = hy - pointer.y;
           const pd = Math.hypot(pdx, pdy);
-          if (pd < L * 0.85 + 40 && pd > 1e-3) {
-            const pw = (1 - pd / (L * 0.85 + 40)) * 2.4;
-            dx += (pdx / pd) * pw;
-            dy += (pdy / pd) * pw;
+          if (pd < L * 0.85 + 45 && pd > 1e-3) {
+            t.targetHeading = Math.atan2(pdy, pdx);
+            t.isTurning = true;
           }
         }
 
-        // 5. Smooth turtle-to-turtle angular separation (no twitching or overlapping)
+        // 4. Smooth turtle-to-turtle separation (pass each other cleanly without circling)
         for (let j = 0; j < turtles.length; j++) {
           if (i === j) continue;
           const other = turtles[j];
-          const ox = hx - other.nodes[0];
-          const oy = hy - other.nodes[1];
+          const ox = other.nodes[0] - hx;
+          const oy = other.nodes[1] - hy;
           const dist = Math.hypot(ox, oy);
-          const range = (L + other.length) * 0.52;
-          if (dist < range && dist > 1e-3) {
-            const w = (1 - dist / range) * 2.2;
-            dx += (ox / dist) * w;
-            dy += (oy / dist) * w;
+          const safeDist = (L + other.length) * 0.52;
+          if (dist < safeDist && dist > 1e-3) {
+            const fx = Math.cos(t.heading);
+            const fy = Math.sin(t.heading);
+            const dot = (ox / dist) * fx + (oy / dist) * fy;
+            if (dot > 0.35) {
+              const nx = -fy;
+              const ny = fx;
+              const side = (ox / dist) * nx + (oy / dist) * ny;
+              const veer = side >= 0 ? -0.40 : 0.40;
+              t.targetHeading = t.heading + veer;
+              t.isTurning = true;
+            }
           }
         }
 
-        // 6. Soft screen boundary containment
-        const over = Math.max(-hx, hx - W, -hy, hy - H);
-        if (over > -L * 0.12) {
-          const w = clamp((over + L * 0.12) / (L * 0.35), 0, 1) * 3.5;
-          const toX = cxW - hx;
-          const toY = cyW - hy;
-          const d = Math.hypot(toX, toY) || 1;
-          dx += (toX / d) * w;
-          dy += (toY / d) * w;
+        // 5. STRAIGHT-LINE HEADING TRACKING (NO CIRCLES!)
+        // When swimming straight, heading stays 100% constant -> pure straight oceanic transit!
+        // When turning, turns smoothly at a controlled rate (max ~28 deg/s) until aligned
+        const diff = angleDiff(t.heading, t.targetHeading);
+        if (Math.abs(diff) > 0.022) {
+          const maxTurn = 0.48 * dt; // Controlled, majestic turn rate
+          const step = clamp(diff, -maxTurn, maxTurn);
+          t.heading += step;
+          t.turn = step / dt; // Instantaneous turn rate for rudder & banking
+        } else {
+          t.heading = t.targetHeading;
+          t.turn = 0;
+          t.isTurning = false;
         }
 
-        // 7. Smooth, graceful turning rate (realistic aquatic kinematics, max ~30 deg/s)
-        const desired = Math.atan2(dy, dx);
-        const maxTurn = 0.52 * dt;
-        const turned = clamp(angleDiff(t.heading, desired), -maxTurn, maxTurn);
-        t.heading += turned;
-        t.turn = turned / dt; // Instantaneous angular rate for banking & rudder steering
-
-        // 8. PHYSICAL ANIMAL LOCOMOTION: Power Stroke + Hydrodynamic Glide
-        // Stroke cycle runs at majestic marine cadence (~2.0 rad/s)
-        t.strokeCycle += dt * (1.9 + (t.alarm > 0.1 ? 1.4 : 0));
+        // 6. PHYSICAL ANIMAL LOCOMOTION: Power Stroke + Hydrodynamic Glide
+        t.strokeCycle += dt * (2.1 + (t.alarm > 0.1 ? 1.4 : 0));
         const strokeSin = Math.sin(t.strokeCycle);
         const isPowerStroke = strokeSin > 0;
         const thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
 
-        // During the power stroke, flippers sweep back and speed surges forward!
-        // During glide, viscous water drag decelerates the turtle smoothly.
+        // Thrust acceleration: surges forward on power stroke, glides on recovery
         const baseGlideSpeed = 16 + L * 0.025;
         const peakThrustSpeed = baseGlideSpeed + 26 + (t.alarm > 0.1 ? 16 : 0);
         const targetSpeed = baseGlideSpeed + thrustPower * (peakThrustSpeed - baseGlideSpeed);
         const accelRate = isPowerStroke ? 3.8 : 1.3;
         t.speed += (targetSpeed - t.speed) * Math.min(1, dt * accelRate);
 
-        // 9. Strictly forward tangential velocity along heading — ZERO DRIFTING!
+        // 7. STRICTLY FORWARD TANGENTIAL VELOCITY — 100% STRAIGHT WHEN HEADING IS CONSTANT!
         const moveFx = Math.cos(t.heading);
         const moveFy = Math.sin(t.heading);
         nodes[0] += moveFx * t.speed * dt;
         nodes[1] += moveFy * t.speed * dt;
 
-        // 10. Articulated Head & Neck + Rigid Carapace Spine Alignment
+        // 8. Articulated Head & Neck + Rigid Carapace Spine Alignment
         const seg = L / (TURTLE_NODES - 1);
         const headTurn = clamp(t.turn * 0.38, -0.22, 0.22);
         const tailTurn = -clamp(t.turn * 0.28, -0.16, 0.16);
@@ -3562,8 +3568,9 @@
           const nx = -fy;
           const ny = fx;
           const shape = TURTLE_SHAPES[t.kind] || TURTLE_SHAPES.loggerhead;
-          const span = L * (shape.flipperSpan || 0.49);
-          const tipS = (0.22 + 0.12 + strokeSin * 0.22) * L;
+          const extension = 1.0 - 0.58 * Math.pow(strokeSin, 1.25);
+          const span = L * (shape.flipperSpan || 0.49) * extension;
+          const tipS = (0.22 + 0.10 + 0.28 * Math.pow(strokeSin, 1.15)) * L;
 
           // Left tip
           const lx = t.nodes[0] - fx * tipS + nx * span;
@@ -3717,33 +3724,48 @@
         }
       }
 
-      // ── 3. ARTICULATED FRONT FLIPPERS (PECTORAL WINGS - Full rowing & flapping cycle) ──
+      // ── 3. ARTICULATED FRONT FLIPPERS (PECTORAL WINGS - Estiramiento y Encogimiento) ──
       const sShoulder = 0.22;
       const strokeSin = Math.sin(t.strokeCycle);
       const strokeCos = Math.cos(t.strokeCycle);
       const aMin = L * 0.08;
 
+      // When strokeSin < 0 (recovery): flippers reach forward and STRETCH wide out (estirarse)!
+      // When strokeSin > 0 (power stroke): flippers sweep back and CONTRACT tight (encogerse)!
+      let extension;
+      let strokeSweep;
+      if (strokeSin < 0) {
+        // Recovery / Reach: fully stretched out to the sides and reached forward
+        const extProg = -strokeSin; // 0 to 1
+        extension = 1.0 + 0.20 * extProg; // Expands up to 1.20x base span!
+        strokeSweep = -0.15 * extProg;    // Reaches forward towards head (s -> 0.14)
+      } else {
+        // Power stroke: pulls back and contracts tight against the carapace flanks
+        const pullProg = strokeSin; // 0 to 1
+        extension = 1.0 - 0.58 * Math.pow(pullProg, 1.25); // Contracts down to 0.42x base span!
+        strokeSweep = 0.28 * Math.pow(pullProg, 1.15);     // Sweeps back along shell (s -> 0.52)
+      }
+
       // Banking into turns: outer flipper extends wider, inner flipper tucks/brakes
       const bank = clamp(t.turn * 1.1, -0.35, 0.35) * bestSign;
       const baseSpan = L * (shape.flipperSpan || 0.49);
-      const curSpan = baseSpan * (1 + bank * 0.40);
+      const curSpan = baseSpan * extension * (1 + bank * 0.35);
       const aMax = aMin + curSpan;
 
       if (a >= aMin && a <= aMax) {
         const spanProg = (a - aMin) / curSpan; // 0 at shoulder, 1 at wingtip
 
-        // Dynamic rowing sweep: flippers sweep down and back on power stroke, forward on recovery
-        const sweepAmp = 0.22 * Math.pow(spanProg, 1.15);
-        const strokeSweep = strokeSin * sweepAmp;
-        const baseSweep = 0.12 * Math.pow(spanProg, 1.35); // Natural hydrofoil sweep
+        // Natural hydrofoil backward sweep + stroke sweep
+        const baseSweep = 0.10 * Math.pow(spanProg, 1.3);
+        const sweepAmp = strokeSweep * Math.pow(spanProg, 1.1);
 
-        // Flexible blade lag: wingtip lags behind the stroke motion due to water resistance
-        const bladeLag = -0.08 * strokeCos * Math.pow(spanProg, 1.4);
+        // Blade lag: flexible wingtip flexes with water resistance
+        const bladeLag = -0.06 * strokeCos * Math.pow(spanProg, 1.4);
 
-        const flipperAxisS = sShoulder + baseSweep + strokeSweep + bladeLag;
+        const flipperAxisS = sShoulder + baseSweep + sweepAmp + bladeLag;
 
         // Hydrodynamic tapered blade chord
-        const flipperChord = 0.048 + 0.052 * Math.sin(spanProg * Math.PI) * (1 - 0.20 * spanProg);
+        const flipperChord = 0.046 + 0.050 * Math.sin(spanProg * Math.PI) * (1 - 0.20 * spanProg);
         const ds = Math.abs(s - flipperAxisS);
 
         if (ds <= flipperChord) {
