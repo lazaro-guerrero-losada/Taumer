@@ -3187,11 +3187,11 @@
       for (let i = 0; i < count; i++) {
         const spec = this.specs[i];
         const L = baseLen * (spec.size || 1.0);
-        const fAng = (i / count) * TAU + rand(-0.4, 0.4);
-        const rad = Math.min(W, H) * rand(0.18, 0.38);
+        const fAng = (i / count) * TAU + rand(-0.35, 0.35);
+        const rad = minSide * rand(0.20, 0.38);
         const hx = W / 2 + Math.cos(fAng) * rad;
         const hy = H / 2 + Math.sin(fAng) * rad;
-        const heading = fAng + Math.PI / 2 + rand(-0.5, 0.5);
+        const heading = fAng + Math.PI / 2 + rand(-0.3, 0.3);
 
         const nodes = new Float32Array(TURTLE_NODES * 2);
         const seg = L / (TURTLE_NODES - 1);
@@ -3206,13 +3206,17 @@
           length: L,
           nodes,
           heading,
-          speed: rand(20, 26),
+          speed: 22,
           turn: 0,
           depth: rand(0.55, 0.95),
           phase: rand(0, TAU),
-          strokeCycle: rand(0, TAU),
-          target: { x: W / 2, y: H / 2 },
-          targetTimer: rand(1.5, 4.0),
+          strokeCycle: (i * (TAU / count)) + rand(0, 0.6), // Staggered swimming strokes!
+          orbitRadius: minSide * (0.24 + 0.10 * (i % 3)),
+          orbitDir: (i % 2 === 0 ? 1 : -1),
+          wander: 0,
+          alarm: 0,
+          fleeX: 0,
+          fleeY: 0,
         });
       }
 
@@ -3242,10 +3246,10 @@
         const hx = t.nodes[0];
         const hy = t.nodes[1];
         const d = Math.hypot(hx - x, hy - y);
-        if (d < t.length * 1.5 && d > 1e-3) {
-          const flee = Math.atan2(hy - y, hx - x);
-          t.heading += clamp(angleDiff(t.heading, flee), -1.1, 1.1);
-          t.speed = Math.min(52, t.speed + 16);
+        if (d < t.length * 1.6 && d > 1e-3) {
+          t.alarm = Math.max(t.alarm, clamp(1.4 - d / (t.length * 1.6), 0, 1.2));
+          t.fleeX = x;
+          t.fleeY = y;
         }
       }
     }
@@ -3258,6 +3262,9 @@
 
     stepTurtles(dt) {
       const { turtles, width: W, height: H, pointer } = this;
+      const minSide = Math.min(W, H) || 600;
+      const cxW = W / 2;
+      const cyW = H / 2;
 
       for (let i = 0; i < turtles.length; i++) {
         const t = turtles[i];
@@ -3266,104 +3273,112 @@
         const hx = nodes[0];
         const hy = nodes[1];
 
-        // 1. Long, peaceful oceanic cruising targets
-        t.targetTimer -= dt;
-        const distToTarget = Math.hypot(t.target.x - hx, t.target.y - hy);
-        if (t.targetTimer <= 0 || distToTarget < 90) {
-          t.targetTimer = rand(12.0, 22.0);
-          const fwdAng = t.heading + rand(-0.75, 0.75);
-          const cruiseDist = Math.min(W, H) * rand(0.35, 0.70);
-          t.target.x = clamp(hx + Math.cos(fwdAng) * cruiseDist, 100, W - 100);
-          t.target.y = clamp(hy + Math.sin(fwdAng) * cruiseDist, 100, H - 100);
+        // 1. Oceanic corridor cruising guidance (continuous sweeping orbital flow)
+        const rx = (hx - cxW) / (W / minSide);
+        const ry = hy - cyW;
+        const r = Math.hypot(rx, ry) || 1;
+        const radius = t.orbitRadius * (1 + 0.14 * Math.sin(this.time * 0.05 + t.id * 1.7));
+        const radial = clamp((radius - r) / radius, -1, 1);
+        let dx = ((-ry / r) * t.orbitDir + (rx / r) * radial * 0.85) * 0.65;
+        let dy = ((rx / r) * t.orbitDir + (ry / r) * radial * 0.85) * 0.65;
+
+        // 2. Smooth Brownian wander (organic deviation, avoids robotic repetition)
+        t.wander = clamp(t.wander + (Math.random() - 0.5) * dt * 0.45, -0.65, 0.65);
+        dx += Math.cos(t.heading + t.wander) * 0.35;
+        dy += Math.sin(t.heading + t.wander) * 0.35;
+
+        // 3. Click splash fleeing response
+        if (t.alarm > 0.02) {
+          t.alarm *= Math.exp(-dt * 1.2);
+          const fx = hx - t.fleeX;
+          const fy = hy - t.fleeY;
+          const fd = Math.hypot(fx, fy) || 1;
+          dx += (fx / fd) * t.alarm * 2.8;
+          dy += (fy / fd) * t.alarm * 2.8;
         }
 
-        // 2. Compute smooth steering vector (NO lateral sliding!)
-        const toTargetX = t.target.x - hx;
-        const toTargetY = t.target.y - hy;
-        const dTarget = Math.hypot(toTargetX, toTargetY) || 1;
-        let steerX = (toTargetX / dTarget) * 25;
-        let steerY = (toTargetY / dTarget) * 25;
-
-        // Screen boundary smooth avoidance
-        const pad = 110;
-        if (hx < pad) steerX += ((pad - hx) / pad) * 45;
-        else if (hx > W - pad) steerX -= ((hx - (W - pad)) / pad) * 45;
-        if (hy < pad) steerY += ((pad - hy) / pad) * 45;
-        else if (hy > H - pad) steerY -= ((hy - (H - pad)) / pad) * 45;
-
-        // Pointer gentle repulsion
+        // 4. Gentle pointer avoidance
         if (pointer.active) {
-          const dpx = hx - pointer.x;
-          const dpy = hy - pointer.y;
-          const dp = Math.hypot(dpx, dpy);
-          if (dp < L * 1.4 && dp > 1e-3) {
-            const w = (1 - dp / (L * 1.4)) * 60;
-            steerX += (dpx / dp) * w;
-            steerY += (dpy / dp) * w;
+          const pdx = hx - pointer.x;
+          const pdy = hy - pointer.y;
+          const pd = Math.hypot(pdx, pdy);
+          if (pd < L * 0.85 + 40 && pd > 1e-3) {
+            const pw = (1 - pd / (L * 0.85 + 40)) * 2.4;
+            dx += (pdx / pd) * pw;
+            dy += (pdy / pd) * pw;
           }
         }
 
-        // Turtle-to-turtle smooth angular avoidance (steer gracefully, don't slide sideways)
-        const fx = Math.cos(t.heading);
-        const fy = Math.sin(t.heading);
-        const nx = -fy;
-        const ny = fx;
-
+        // 5. Smooth turtle-to-turtle angular separation (no twitching or overlapping)
         for (let j = 0; j < turtles.length; j++) {
           if (i === j) continue;
           const other = turtles[j];
-          const toX = other.nodes[0] - hx;
-          const toY = other.nodes[1] - hy;
-          const dist = Math.hypot(toX, toY);
-          const safeDist = (L + other.length) * 0.70;
-          if (dist < safeDist && dist > 1e-3) {
-            const ahead = (toX / dist) * fx + (toY / dist) * fy;
-            if (ahead > 0.05) {
-              const lat = (toX / dist) * nx + (toY / dist) * ny;
-              const avoidSide = lat >= 0 ? -1 : 1;
-              const strength = (1 - dist / safeDist) * 35;
-              steerX += nx * avoidSide * strength;
-              steerY += ny * avoidSide * strength;
-            }
+          const ox = hx - other.nodes[0];
+          const oy = hy - other.nodes[1];
+          const dist = Math.hypot(ox, oy);
+          const range = (L + other.length) * 0.52;
+          if (dist < range && dist > 1e-3) {
+            const w = (1 - dist / range) * 2.2;
+            dx += (ox / dist) * w;
+            dy += (oy / dist) * w;
           }
         }
 
-        // 3. Smooth, graceful turning rate (realistic aquatic kinematics, max ~26 deg/s)
-        const desired = Math.atan2(steerY, steerX);
-        const err = angleDiff(t.heading, desired);
-        const maxTurnRate = 0.46;
-        const targetTurn = clamp(err * 1.5, -maxTurnRate, maxTurnRate);
-        t.turn += (targetTurn - t.turn) * Math.min(1, dt * 2.2);
-        t.heading += t.turn * dt;
+        // 6. Soft screen boundary containment
+        const over = Math.max(-hx, hx - W, -hy, hy - H);
+        if (over > -L * 0.12) {
+          const w = clamp((over + L * 0.12) / (L * 0.35), 0, 1) * 3.5;
+          const toX = cxW - hx;
+          const toY = cyW - hy;
+          const d = Math.hypot(toX, toY) || 1;
+          dx += (toX / d) * w;
+          dy += (toY / d) * w;
+        }
 
-        // 4. Rhythmic flipper stroke propulsive pulsing
-        t.strokeCycle += dt * 1.35;
-        // Stroke power: peaks when flippers sweep back (power stroke)
-        const strokePower = Math.pow(Math.max(0, Math.sin(t.strokeCycle)), 2.2);
-        const baseSpeed = 19 + L * 0.022;
-        const targetSpeed = baseSpeed + strokePower * 9.5;
-        t.speed += (targetSpeed - t.speed) * Math.min(1, dt * 2.0);
+        // 7. Smooth, graceful turning rate (realistic aquatic kinematics, max ~30 deg/s)
+        const desired = Math.atan2(dy, dx);
+        const maxTurn = 0.52 * dt;
+        const turned = clamp(angleDiff(t.heading, desired), -maxTurn, maxTurn);
+        t.heading += turned;
+        t.turn = turned / dt; // Instantaneous angular rate for banking & rudder steering
 
-        // 5. Strictly forward velocity along body heading — ZERO DRIFTING!
+        // 8. PHYSICAL ANIMAL LOCOMOTION: Power Stroke + Hydrodynamic Glide
+        // Stroke cycle runs at majestic marine cadence (~2.0 rad/s)
+        t.strokeCycle += dt * (1.9 + (t.alarm > 0.1 ? 1.4 : 0));
+        const strokeSin = Math.sin(t.strokeCycle);
+        const isPowerStroke = strokeSin > 0;
+        const thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
+
+        // During the power stroke, flippers sweep back and speed surges forward!
+        // During glide, viscous water drag decelerates the turtle smoothly.
+        const baseGlideSpeed = 16 + L * 0.025;
+        const peakThrustSpeed = baseGlideSpeed + 26 + (t.alarm > 0.1 ? 16 : 0);
+        const targetSpeed = baseGlideSpeed + thrustPower * (peakThrustSpeed - baseGlideSpeed);
+        const accelRate = isPowerStroke ? 3.8 : 1.3;
+        t.speed += (targetSpeed - t.speed) * Math.min(1, dt * accelRate);
+
+        // 9. Strictly forward tangential velocity along heading — ZERO DRIFTING!
         const moveFx = Math.cos(t.heading);
         const moveFy = Math.sin(t.heading);
         nodes[0] += moveFx * t.speed * dt;
         nodes[1] += moveFy * t.speed * dt;
 
-        // 6. Rigid carapace spine alignment (carapace is solid bone & keratin, doesn't bend like a fish!)
+        // 10. Articulated Head & Neck + Rigid Carapace Spine Alignment
         const seg = L / (TURTLE_NODES - 1);
-        const headTurn = clamp(t.turn * 0.35, -0.20, 0.20);
-        const tailTurn = -clamp(t.turn * 0.25, -0.15, 0.15);
+        const headTurn = clamp(t.turn * 0.38, -0.22, 0.22);
+        const tailTurn = -clamp(t.turn * 0.28, -0.16, 0.16);
 
-        const hx0 = nodes[0];
-        const hy0 = nodes[1];
+        // Snout (Node 0) reaches forward dynamically on the thrust surge
+        const neckStretch = thrustPower * (L * 0.024);
+        const hx0 = nodes[0] + moveFx * neckStretch;
+        const hy0 = nodes[1] + moveFy * neckStretch;
 
-        // Node 1: skull base
+        // Skull base (Node 1)
         const angHead = t.heading + Math.PI + headTurn;
         nodes[2] = hx0 + Math.cos(angHead) * seg;
         nodes[3] = hy0 + Math.sin(angHead) * seg;
 
-        // Nodes 2..12: rigid carapace spine aligned exactly with t.heading
+        // Carapace spine (Nodes 2..12) aligned rigidly with heading
         const angBody = t.heading + Math.PI;
         const bodyCos = Math.cos(angBody);
         const bodySin = Math.sin(angBody);
@@ -3372,7 +3387,7 @@
           nodes[k * 2 + 1] = nodes[3] + bodySin * seg * (k - 1);
         }
 
-        // Nodes 13..15: tail
+        // Tail (Nodes 13..15) gently counters the turn
         const angTail = t.heading + Math.PI + tailTurn;
         const tailCos = Math.cos(angTail);
         const tailSin = Math.sin(angTail);
@@ -3487,6 +3502,31 @@
       for (const t of world.turtles) {
         const i = this.cellIndex(t.nodes[0], t.nodes[1]);
         if (i >= 0) energy[i] = Math.min(1.5, energy[i] + 0.035);
+
+        // Power stroke deposits wake vortices at flipper tips
+        const strokeSin = Math.sin(t.strokeCycle);
+        if (strokeSin > 0.15) {
+          const L = t.length;
+          const fx = Math.cos(t.heading);
+          const fy = Math.sin(t.heading);
+          const nx = -fy;
+          const ny = fx;
+          const shape = TURTLE_SHAPES[t.kind] || TURTLE_SHAPES.loggerhead;
+          const span = L * (shape.flipperSpan || 0.49);
+          const tipS = (0.22 + 0.12 + strokeSin * 0.22) * L;
+
+          // Left tip
+          const lx = t.nodes[0] - fx * tipS + nx * span;
+          const ly = t.nodes[1] - fy * tipS + ny * span;
+          const li = this.cellIndex(lx, ly);
+          if (li >= 0) energy[li] = Math.min(1.6, energy[li] + 0.045 * strokeSin);
+
+          // Right tip
+          const rx = t.nodes[0] - fx * tipS - nx * span;
+          const ry = t.nodes[1] - fy * tipS - ny * span;
+          const ri = this.cellIndex(rx, ry);
+          if (ri >= 0) energy[ri] = Math.min(1.6, energy[ri] + 0.045 * strokeSin);
+        }
       }
     }
 
@@ -3627,40 +3667,57 @@
         }
       }
 
-      // ── 3. BALANCED FRONT FLIPPERS (PECTORAL WINGS - Rhythmic flapping & rowing strokes) ──
-      const flipperRootS = 0.24;
-      const stroke = Math.sin(t.strokeCycle);
-      const aMin = L * 0.09;
-      const aMax = L * (shape.flipperSpan || 0.50);
+      // ── 3. ARTICULATED FRONT FLIPPERS (PECTORAL WINGS - Full rowing & flapping cycle) ──
+      const sShoulder = 0.22;
+      const strokeSin = Math.sin(t.strokeCycle);
+      const strokeCos = Math.cos(t.strokeCycle);
+      const aMin = L * 0.08;
+
+      // Banking into turns: outer flipper extends wider, inner flipper tucks/brakes
+      const bank = clamp(t.turn * 1.1, -0.35, 0.35) * bestSign;
+      const baseSpan = L * (shape.flipperSpan || 0.49);
+      const curSpan = baseSpan * (1 + bank * 0.40);
+      const aMax = aMin + curSpan;
 
       if (a >= aMin && a <= aMax) {
-        const spanProg = (a - aMin) / (aMax - aMin); // 0 at shoulder, 1 at wingtip
-        // Rhythmic flapping motion: wingtips swing forward on recovery and sweep back on power stroke!
-        const flapSweep = stroke * (0.16 * Math.pow(spanProg, 1.15));
-        const baseSweep = 0.18 * Math.pow(spanProg, 1.35);
-        const flipperAxisS = flipperRootS + flapSweep + baseSweep;
+        const spanProg = (a - aMin) / curSpan; // 0 at shoulder, 1 at wingtip
+
+        // Dynamic rowing sweep: flippers sweep down and back on power stroke, forward on recovery
+        const sweepAmp = 0.22 * Math.pow(spanProg, 1.15);
+        const strokeSweep = strokeSin * sweepAmp;
+        const baseSweep = 0.12 * Math.pow(spanProg, 1.35); // Natural hydrofoil sweep
+
+        // Flexible blade lag: wingtip lags behind the stroke motion due to water resistance
+        const bladeLag = -0.08 * strokeCos * Math.pow(spanProg, 1.4);
+
+        const flipperAxisS = sShoulder + baseSweep + strokeSweep + bladeLag;
+
         // Hydrodynamic tapered blade chord
-        const flipperChord = 0.055 + 0.045 * Math.sin(spanProg * Math.PI) * (1 - 0.25 * spanProg);
+        const flipperChord = 0.048 + 0.052 * Math.sin(spanProg * Math.PI) * (1 - 0.20 * spanProg);
         const ds = Math.abs(s - flipperAxisS);
 
         if (ds <= flipperChord) {
           this.hitFlag = FLAG_FIN; // Flippers (uses lighter skinTint!)
-          this.hitShade = 0.72 - spanProg * 0.20;
+          // Dynamic shading: highlights the leading edge and blade curvature
+          const edgeShade = 1 - (ds / flipperChord);
+          this.hitShade = 0.60 + edgeShade * 0.18 - spanProg * 0.15 + strokeCos * 0.10 * spanProg;
           return true;
         }
       }
 
-      // ── 4. REAR FLIPPERS (PELVIC STEERING PADDLES) ──
+      // ── 4. REAR FLIPPERS (PELVIC STEERING RUDDERS) ──
       const rearRootS = 0.70;
       const rearMinA = L * 0.05;
       const rearMaxA = L * 0.28;
-      if (a >= rearMinA && a <= rearMaxA && s >= 0.64 && s <= 0.92) {
+      if (a >= rearMinA && a <= rearMaxA && s >= 0.62 && s <= 0.94) {
         const rearSpanProg = (a - rearMinA) / (rearMaxA - rearMinA);
-        const rearAxisS = rearRootS + rearSpanProg * 0.12;
-        const rearChord = 0.085 * (1 - 0.35 * rearSpanProg) + 0.02;
+        // Tilts dynamically into turns like an airplane rudder!
+        const rudderAngle = -t.turn * 0.45 * bestSign;
+        const rearAxisS = rearRootS + rearSpanProg * 0.14 + rudderAngle * 0.08;
+        const rearChord = 0.080 * (1 - 0.35 * rearSpanProg) + 0.02;
         if (Math.abs(s - rearAxisS) <= rearChord) {
           this.hitFlag = FLAG_FIN; // Rear flipper paddles (lighter skinTint)
-          this.hitShade = 0.60 - rearSpanProg * 0.20;
+          this.hitShade = 0.58 - rearSpanProg * 0.18;
           return true;
         }
       }
@@ -3711,7 +3768,7 @@
           minY = Math.min(minY, spine[k * 2 + 1]);
           maxY = Math.max(maxY, spine[k * 2 + 1]);
         }
-        const reach = L * (this.curShape.flipperSpan || 0.66) + 20;
+        const reach = L * ((this.curShape.flipperSpan || 0.52) * 1.45 + 0.12) + 24;
         const c0 = Math.max(0, Math.floor((minX - reach) / cw));
         const c1 = Math.min(cols - 1, Math.floor((maxX + reach) / cw));
         const r0 = Math.max(0, Math.floor((minY - reach) / ch));
