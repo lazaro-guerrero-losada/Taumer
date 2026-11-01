@@ -2536,16 +2536,24 @@
 
           if (headingDot < -0.55) {
             // ── CASE A: HEAD-ON ENCOUNTER (Van de frente) ──
-            // Both turtles alter to starboard (their right), biasing left flipper!
-            ti.targetHeading = ti.heading + 0.25;
-            ti.targetLeft = 1.0;
-            ti.targetRight = 0.40;
+            // Both turtles steer towards open ocean, biasing single-flipper turn:
+            const toCenterXi = (W * 0.5) - hxi;
+            const toCenterYi = (H * 0.5) - hyi;
+            const centerAngleI = Math.atan2(toCenterYi, toCenterXi);
+            const inSignI = angleDiff(ti.heading, centerAngleI) >= 0 ? 1 : -1;
+            ti.targetHeading = ti.heading + inSignI * 0.22;
+            ti.targetLeft = inSignI > 0 ? 1.0 : 0.40;
+            ti.targetRight = inSignI > 0 ? 0.40 : 1.0;
             ti.isTurning = true;
             ti.turnCooldown = 4.5;
 
-            tj.targetHeading = tj.heading + 0.25;
-            tj.targetLeft = 1.0;
-            tj.targetRight = 0.40;
+            const toCenterXj = (W * 0.5) - hxj;
+            const toCenterYj = (H * 0.5) - hyj;
+            const centerAngleJ = Math.atan2(toCenterYj, toCenterXj);
+            const inSignJ = angleDiff(tj.heading, centerAngleJ) >= 0 ? 1 : -1;
+            tj.targetHeading = tj.heading + inSignJ * 0.22;
+            tj.targetLeft = inSignJ > 0 ? 1.0 : 0.40;
+            tj.targetRight = inSignJ > 0 ? 0.40 : 1.0;
             tj.isTurning = true;
             tj.turnCooldown = 4.5;
           } else {
@@ -2744,24 +2752,18 @@
             t.targetRight = 1.0;
             t.speed = Math.max(t.speed, 26);
           } else {
-            // Normal open-water pivot: Lock in direction and pivot center once!
+            // Normal open-water pivot: Lock in direction once and commit!
             t.isPivoting = true;
-            t.pivotTimer = 1.8; // Commit to turning for at least 1.8s
+            t.pivotTimer = 2.0; // Commit to turning maneuver for 2.0s
             t.pivotDir = blockLat >= 0 ? -1 : 1; // Steer away from obstacle
 
-            const shoulderDist = L * 0.22;
-            const flipperOffset = L * 0.20;
             if (t.pivotDir > 0) {
-              // Turning RIGHT: pivot is RIGHT flipper; paddle with LEFT flipper!
-              t.pivotX = hx - fx * shoulderDist - nx * flipperOffset;
-              t.pivotY = hy - fy * shoulderDist - ny * flipperOffset;
+              // Turning RIGHT: paddle with LEFT flipper, brake with RIGHT flipper!
               t.targetLeft = 1.0;
-              t.targetRight = 0.0; // Anchored brake
+              t.targetRight = 0.15;
             } else {
-              // Turning LEFT: pivot is LEFT flipper; paddle with RIGHT flipper!
-              t.pivotX = hx - fx * shoulderDist + nx * flipperOffset;
-              t.pivotY = hy - fy * shoulderDist + ny * flipperOffset;
-              t.targetLeft = 0.0; // Anchored brake
+              // Turning LEFT: paddle with RIGHT flipper, brake with LEFT flipper!
+              t.targetLeft = 0.15;
               t.targetRight = 1.0;
             }
           }
@@ -2770,23 +2772,46 @@
         if (t.isPivoting) {
           t.pivotTimer -= dt;
 
-          // In-place rotation around the anchored flipper:
-          const rotSpeed = 0.38; // ~22 deg/s
+          // 1. Angular turning rate: calm and stately (~10.3 deg/s, never fast!)
+          const rotSpeed = 0.18; // ~10.3 deg/s
           const dTheta = t.pivotDir * rotSpeed * dt;
-          const cosR = Math.cos(dTheta);
-          const sinR = Math.sin(dTheta);
-
-          for (let k = 0; k < TURTLE_NODES; k++) {
-            const dx = nodes[k * 2] - t.pivotX;
-            const dy = nodes[k * 2 + 1] - t.pivotY;
-            nodes[k * 2] = t.pivotX + dx * cosR - dy * sinR;
-            nodes[k * 2 + 1] = t.pivotY + dx * sinR + dy * cosR;
-          }
           t.heading += dTheta;
           t.targetHeading = t.heading;
           t.turn = dTheta / dt;
-          t.speed = Math.max(0, t.speed - dt * 28);
-          t.strokeCycle += dt * 1.6;
+
+          // 2. Stroke cycle: paddling with single active flipper
+          t.strokeCycle += dt * 1.5;
+          const strokeCos = Math.cos(t.strokeCycle);
+
+          // 3. User rule: "un giro no puede ser mas rapido que la velocidad punta, porque el giro es con una aleta,
+          //    por lo que como maximo es la mitad, ya que hacia adelante usa dos."
+          // Cruising peak speed was ~42 px/s, so single-flipper peak is strictly half (~20 px/s):
+          const isPowerStroke = strokeCos > 0.05;
+          const thrustPower = isPowerStroke ? Math.pow(strokeCos, 1.4) : 0;
+          const turnBaseSpeed = 6 + L * 0.015;
+          const turnPeakSpeed = turnBaseSpeed + 12; // max ~20 px/s
+          const targetSpeed = turnBaseSpeed + thrustPower * (turnPeakSpeed - turnBaseSpeed);
+          t.speed += (targetSpeed - t.speed) * Math.min(1, dt * 5.0);
+
+          // 4. PURE FORWARD TRANSLATION ALONG HEADING — ZERO BACKWARD MOTION!
+          const moveFx = Math.cos(t.heading);
+          const moveFy = Math.sin(t.heading);
+          nodes[0] += moveFx * t.speed * dt;
+          nodes[1] += moveFy * t.speed * dt;
+
+          // 5. Kinematic follow-the-leader spine: body naturally sweeps along the arc!
+          const seg = L / (TURTLE_NODES - 1);
+          let prevAngle = t.heading + Math.PI;
+          for (let k = 1; k < TURTLE_NODES; k++) {
+            const px = nodes[(k - 1) * 2];
+            const py = nodes[(k - 1) * 2 + 1];
+            let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
+            const maxBend = k <= 1 ? 0.15 : (k <= 12 ? 0.038 : 0.14);
+            angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
+            nodes[k * 2] = px + Math.cos(angle) * seg;
+            nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
+            prevAngle = angle;
+          }
 
           // Exit condition: timer expired AND forward path has opened up!
           if (t.pivotTimer <= 0 && !obstacleDetected) {
@@ -2799,7 +2824,8 @@
           // ── 6. REGULAR STRAIGHT-LINE CRUISING & PROPULSION ──
           const diff = angleDiff(t.heading, t.targetHeading);
           if (Math.abs(diff) > 0.02) {
-            const maxTurn = 0.30 * dt;
+            // Calm turn rate: max 0.16 * dt (~9 deg/s)
+            const maxTurn = 0.16 * dt;
             const step = clamp(diff, -maxTurn, maxTurn);
             t.heading += step;
             t.turn = step / dt;
