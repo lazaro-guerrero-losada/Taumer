@@ -1460,7 +1460,7 @@
       this.cols = 0;
       this.rows = 0;
       this.time = 0;
-      this.genInterval = 0.22; // Responsive, fluid generation evolution cadence
+      this.genInterval = 0.75; // Calm, contemplative generation evolution cadence (~1.33 gen/s)
       this.genTimer = 0.0;     // Synchronous generation evolution clock
       this.generation = 0;
       this.directorTimer = 0;
@@ -1804,7 +1804,7 @@
       const n = cols * rows;
       const baseGrowSpeed = 1 / (genInterval * 0.52);
       const baseFadeSpeed = 1 / (genInterval * 0.72);
-      const ghostDecay = Math.exp(-dt * 1.5);
+      const ghostDecay = Math.exp(-dt * 0.85);
 
       let liveTotal = 0;
       let births = 0;
@@ -1939,7 +1939,7 @@
       // ── PERPETUAL ECOSYSTEM DIRECTOR ──
       // Prevents static locked blocks from freezing forever and keeps active gliders moving across space
       this.directorTimer += dt;
-      if (this.directorTimer >= 1.4) {
+      if (this.directorTimer >= 3.0) {
         this.directorTimer = 0;
         const minEmergencyLive = Math.max(40, Math.round(n * 0.035));
 
@@ -4372,6 +4372,7 @@
         { kind: "mako", size: 0.78 },
       ]);
     }
+    window.activeEngine = activeEngine;
 
     const creditSpan = document.querySelector(".repo-credit span");
     if (creditSpan && THEME_CREDITS[normalized]) {
