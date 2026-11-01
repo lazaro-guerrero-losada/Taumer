@@ -2420,6 +2420,7 @@
           pivotTimer: 0,
           pivotX: 0,
           pivotY: 0,
+          isWaiting: false,
           flipperLeftActivity: 1.0,
           flipperRightActivity: 1.0,
           targetLeft: 1.0,
@@ -2487,7 +2488,7 @@
       //     yields and alters heading to pass behind; the turtle on the right maintains course.
       for (let i = 0; i < N; i++) {
         const ti = turtles[i];
-        if (ti.turnCooldown > 0 || ti.isPivoting) continue;
+        if (ti.turnCooldown > 0 || ti.isPivoting || ti.isWaiting) continue;
         const hxi = ti.nodes[0];
         const hyi = ti.nodes[1];
         const fxi = Math.cos(ti.heading);
@@ -2498,7 +2499,7 @@
 
         for (let j = i + 1; j < N; j++) {
           const tj = turtles[j];
-          if (tj.turnCooldown > 0 || tj.isPivoting) continue;
+          if (tj.turnCooldown > 0 || tj.isPivoting || tj.isWaiting) continue;
           const hxj = tj.nodes[0];
           const hyj = tj.nodes[1];
           const fxj = Math.cos(tj.heading);
@@ -2582,7 +2583,7 @@
 
         // Boundary detection: When approaching an edge, initiate a wide, smooth turn towards ocean center
         const nearEdge = (hx < pad || hx > W - pad || hy < pad || hy > H - pad);
-        if (nearEdge && t.turnCooldown <= 0 && !t.isTurning && !t.isPivoting) {
+        if (nearEdge && t.turnCooldown <= 0 && !t.isTurning && !t.isPivoting && !t.isWaiting) {
           const targetX = W / 2 + rand(-W * 0.18, W * 0.18);
           const targetY = H / 2 + rand(-H * 0.18, H * 0.18);
           t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.10, 0.10);
@@ -2598,6 +2599,7 @@
           t.targetHeading = Math.atan2(fy, fx);
           t.isTurning = true;
           t.isPivoting = false;
+          t.isWaiting = false;
           t.pivotTimer = 0;
           t.targetLeft = 1.0;
           t.targetRight = 1.0;
@@ -2623,12 +2625,13 @@
         // Danger reach: threshold to enter close avoidance / pivot
         const dangerReach = L * 0.90 + 22;
         const dangerHalfWidth = L * 0.35 + 12;
-        // Clear reach: threshold with hysteresis to exit pivot
+        // Clear reach: threshold with hysteresis to exit pivot or waiting
         const clearReach = L * 1.25 + 40;
         const clearHalfWidth = L * 0.40 + 20;
 
         let obstacleDetected = false;
         let blockLat = 0;
+        let blockOther = null;
 
         for (let j = 0; j < N; j++) {
           if (i === j) continue;
@@ -2642,39 +2645,125 @@
             const fwd = dx * fx + dy * fy;
             const lat = dx * nx + dy * ny;
 
-            const reachLimit = t.isPivoting ? clearReach : dangerReach;
-            const widthLimit = t.isPivoting ? clearHalfWidth : dangerHalfWidth;
+            const reachLimit = (t.isPivoting || t.isWaiting) ? clearReach : dangerReach;
+            const widthLimit = (t.isPivoting || t.isWaiting) ? clearHalfWidth : dangerHalfWidth;
 
             if (fwd > 0 && fwd < reachLimit && Math.abs(lat) < widthLimit) {
               obstacleDetected = true;
               blockLat = lat;
+              blockOther = other;
               break;
             }
           }
           if (obstacleDetected) break;
         }
 
-        // ── 4. FLIPPER PIVOT STATE MACHINE (Zero Vibration / Zero Flutter) ──
-        if (obstacleDetected && !t.isPivoting) {
-          // ENTER PIVOT: Lock in direction and pivot center once!
-          t.isPivoting = true;
-          t.pivotTimer = 1.8; // Commit to turning for at least 1.8s
-          t.pivotDir = blockLat >= 0 ? 1 : -1; // Turn right if obstacle is left/ahead; else left
+        // ── 4. EDGE-TRAPPED PROTOCOL ("para afuera no puede ir, y para adentro está la otra") ──
+        const edgeDist = Math.min(hx, W - hx, hy, H - hy);
+        const isNearEdgeZone = edgeDist < pad + 35;
+        let isTrappedAtEdge = false;
 
-          const shoulderDist = L * 0.22;
-          const flipperOffset = L * 0.20;
-          if (t.pivotDir > 0) {
-            // Turning RIGHT: pivot is RIGHT flipper; paddle with LEFT flipper!
-            t.pivotX = hx - fx * shoulderDist - nx * flipperOffset;
-            t.pivotY = hy - fy * shoulderDist - ny * flipperOffset;
+        if (obstacleDetected && isNearEdgeZone) {
+          // Obstacle is at blockLat. To steer away from it, steer towards opposite side:
+          const desiredPivotDir = blockLat >= 0 ? -1 : 1;
+          const testHeading = t.heading + desiredPivotDir * 0.50;
+          const testX = hx + Math.cos(testHeading) * 85;
+          const testY = hy + Math.sin(testHeading) * 85;
+          const testEdgeDist = Math.min(testX, W - testX, testY, H - testY);
+
+          // If turning away from obstacle points into or stays pinned to the boundary:
+          if (testEdgeDist < 75 || (testEdgeDist < edgeDist && testEdgeDist < 110)) {
+            isTrappedAtEdge = true;
+          }
+        }
+
+        if (isTrappedAtEdge) {
+          // TRAPPED AT BOUNDARY: Pinned turtle stops and waits patiently until the other clears
+          t.isWaiting = true;
+          t.isPivoting = false;
+          t.pivotTimer = 0;
+
+          // The other turtle realizes: "huy voy a intentar no molestar" -> steers inward to clear space!
+          if (blockOther && !blockOther.isWaiting) {
+            const toCenterX = (W * 0.5) - blockOther.nodes[0];
+            const toCenterY = (H * 0.5) - blockOther.nodes[1];
+            blockOther.targetHeading = Math.atan2(toCenterY, toCenterX);
+            blockOther.isTurning = true;
+            blockOther.turnCooldown = 3.5;
+            blockOther.targetLeft = 1.0;
+            blockOther.targetRight = 1.0;
+            blockOther.speed = Math.max(blockOther.speed, 26);
+          }
+        } else if (t.isWaiting && !obstacleDetected) {
+          // Obstacle has cleared! Resume swimming towards ocean center
+          t.isWaiting = false;
+          t.targetLeft = 1.0;
+          t.targetRight = 1.0;
+          t.turnCooldown = 1.5;
+          const toCenterX = (W * 0.5) - hx;
+          const toCenterY = (H * 0.5) - hy;
+          t.targetHeading = Math.atan2(toCenterY, toCenterX);
+          t.isTurning = true;
+        }
+
+        // ── 5. FLIPPER PIVOT / WAIT / CRUISE STATE MACHINE ──
+        if (t.isWaiting) {
+          // Pinned turtle waits calmly, flippers relaxed, speed smoothly drops to 0
+          t.speed = Math.max(0, t.speed - dt * 32);
+          t.strokeCycle += dt * 0.35;
+          t.targetLeft = 0.20;
+          t.targetRight = 0.20;
+          t.turn = 0;
+
+          const moveFx = Math.cos(t.heading);
+          const moveFy = Math.sin(t.heading);
+          nodes[0] += moveFx * t.speed * dt;
+          nodes[1] += moveFy * t.speed * dt;
+
+          const seg = L / (TURTLE_NODES - 1);
+          let prevAngle = t.heading + Math.PI;
+          for (let k = 1; k < TURTLE_NODES; k++) {
+            const px = nodes[(k - 1) * 2];
+            const py = nodes[(k - 1) * 2 + 1];
+            let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
+            const maxBend = k <= 1 ? 0.15 : (k <= 12 ? 0.038 : 0.14);
+            angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
+            nodes[k * 2] = px + Math.cos(angle) * seg;
+            nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
+            prevAngle = angle;
+          }
+        } else if (obstacleDetected && !t.isPivoting) {
+          // If the obstacle in front is waiting at the wall, steer away towards open water!
+          if (blockOther && blockOther.isWaiting) {
+            const toCenterX = (W * 0.5) - hx;
+            const toCenterY = (H * 0.5) - hy;
+            t.targetHeading = Math.atan2(toCenterY, toCenterX);
+            t.isTurning = true;
+            t.turnCooldown = 3.5;
             t.targetLeft = 1.0;
-            t.targetRight = 0.0; // Anchored brake
-          } else {
-            // Turning LEFT: pivot is LEFT flipper; paddle with RIGHT flipper!
-            t.pivotX = hx - fx * shoulderDist + nx * flipperOffset;
-            t.pivotY = hy - fy * shoulderDist + ny * flipperOffset;
-            t.targetLeft = 0.0; // Anchored brake
             t.targetRight = 1.0;
+            t.speed = Math.max(t.speed, 26);
+          } else {
+            // Normal open-water pivot: Lock in direction and pivot center once!
+            t.isPivoting = true;
+            t.pivotTimer = 1.8; // Commit to turning for at least 1.8s
+            t.pivotDir = blockLat >= 0 ? -1 : 1; // Steer away from obstacle
+
+            const shoulderDist = L * 0.22;
+            const flipperOffset = L * 0.20;
+            if (t.pivotDir > 0) {
+              // Turning RIGHT: pivot is RIGHT flipper; paddle with LEFT flipper!
+              t.pivotX = hx - fx * shoulderDist - nx * flipperOffset;
+              t.pivotY = hy - fy * shoulderDist - ny * flipperOffset;
+              t.targetLeft = 1.0;
+              t.targetRight = 0.0; // Anchored brake
+            } else {
+              // Turning LEFT: pivot is LEFT flipper; paddle with RIGHT flipper!
+              t.pivotX = hx - fx * shoulderDist + nx * flipperOffset;
+              t.pivotY = hy - fy * shoulderDist + ny * flipperOffset;
+              t.targetLeft = 0.0; // Anchored brake
+              t.targetRight = 1.0;
+            }
           }
         }
 
@@ -2706,8 +2795,8 @@
             t.targetRight = 1.0;
             t.turnCooldown = 2.0; // Grace period before any new turn
           }
-        } else {
-          // ── 5. REGULAR STRAIGHT-LINE CRUISING & PROPULSION ──
+        } else if (!t.isWaiting) {
+          // ── 6. REGULAR STRAIGHT-LINE CRUISING & PROPULSION ──
           const diff = angleDiff(t.heading, t.targetHeading);
           if (Math.abs(diff) > 0.02) {
             const maxTurn = 0.30 * dt;
@@ -2735,13 +2824,18 @@
 
           t.strokeCycle += dt * (2.1 + (t.alarm > 0.1 ? 1.4 : 0));
           const strokeSin = Math.sin(t.strokeCycle);
-          const isPowerStroke = strokeSin > 0;
-          const thrustPower = isPowerStroke ? Math.pow(strokeSin, 1.6) : 0;
+          const strokeCos = Math.cos(t.strokeCycle);
 
-          const baseGlideSpeed = 16 + L * 0.025;
-          const peakThrustSpeed = baseGlideSpeed + 26 + (t.alarm > 0.1 ? 16 : 0);
+          // Power stroke occurs during backward sweep & flipper contraction ("recoger las aletas"):
+          // strokeCos > 0 is when the flipper sweeps backward towards the carapace.
+          const isPowerStroke = strokeCos > 0.05;
+          const thrustPower = isPowerStroke ? Math.pow(strokeCos, 1.4) : 0;
+
+          // Low glide speed during recovery / expansion, surging forward when collecting flippers!
+          const baseGlideSpeed = 8 + L * 0.02;
+          const peakThrustSpeed = baseGlideSpeed + 34 + (t.alarm > 0.1 ? 16 : 0);
           const targetSpeed = baseGlideSpeed + thrustPower * (peakThrustSpeed - baseGlideSpeed);
-          const accelRate = isPowerStroke ? 3.8 : 1.3;
+          const accelRate = isPowerStroke ? 6.5 : 1.8;
           t.speed += (targetSpeed - t.speed) * Math.min(1, dt * accelRate);
 
           // Purely forward translation along heading
@@ -2880,18 +2974,19 @@
         const i = this.cellIndex(t.nodes[0], t.nodes[1]);
         if (i >= 0) energy[i] = Math.min(1.5, energy[i] + 0.035);
 
-        // Power stroke deposits wake vortices at flipper tips
-        const strokeSin = Math.sin(t.strokeCycle);
-        if (strokeSin > 0.15) {
+        // Power stroke deposits wake vortices at flipper tips during backward thrust
+        const strokeCos = Math.cos(t.strokeCycle);
+        if (strokeCos > 0.15) {
           const L = t.length;
           const fx = Math.cos(t.heading);
           const fy = Math.sin(t.heading);
           const nx = -fy;
           const ny = fx;
           const shape = TURTLE_SHAPES[t.kind] || TURTLE_SHAPES.loggerhead;
-          const extension = 1.0 - 0.58 * Math.pow(strokeSin, 1.25);
+          const strokeSin = Math.sin(t.strokeCycle);
+          const extension = (strokeSin < 0) ? (1.0 + 0.20 * (-strokeSin)) : (1.0 - 0.58 * Math.pow(strokeSin, 1.25));
           const span = L * (shape.flipperSpan || 0.49) * extension;
-          const tipS = (0.22 + 0.10 + 0.28 * Math.pow(strokeSin, 1.15)) * L;
+          const tipS = (0.22 + 0.10 + 0.28 * Math.pow(Math.max(0, strokeSin), 1.15)) * L;
 
           const leftAct = t.flipperLeftActivity ?? 1.0;
           const rightAct = t.flipperRightActivity ?? 1.0;
@@ -2901,7 +2996,7 @@
             const lx = t.nodes[0] - fx * tipS + nx * span;
             const ly = t.nodes[1] - fy * tipS + ny * span;
             const li = this.cellIndex(lx, ly);
-            if (li >= 0) energy[li] = Math.min(1.6, energy[li] + 0.045 * strokeSin * leftAct);
+            if (li >= 0) energy[li] = Math.min(1.6, energy[li] + 0.045 * strokeCos * leftAct);
           }
 
           // Right tip
@@ -2909,7 +3004,7 @@
             const rx = t.nodes[0] - fx * tipS - nx * span;
             const ry = t.nodes[1] - fy * tipS - ny * span;
             const ri = this.cellIndex(rx, ry);
-            if (ri >= 0) energy[ri] = Math.min(1.6, energy[ri] + 0.045 * strokeSin * rightAct);
+            if (ri >= 0) energy[ri] = Math.min(1.6, energy[ri] + 0.045 * strokeCos * rightAct);
           }
         }
       }
