@@ -1434,3 +1434,7 @@ class OceanEngine {
 }
 
 window.OceanEngine = OceanEngine;
+window.SHARK_SHAPES = SHAPES;
+window.SHARK_KINDS = KINDS;
+window.classicHalfWidth = classicHalfWidth;
+window.inTriangle = inTriangle;

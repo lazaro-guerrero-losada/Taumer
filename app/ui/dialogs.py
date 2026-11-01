@@ -1375,6 +1375,7 @@ class SettingsDialog(Gtk.Window):
             ("sharks", "Sharks", "Classic ocean sharks (Hammerhead, Thresher, Mako) swimming with schooling fish."),
             ("turtles", "Sea Turtles", "Graceful sea turtles (Loggerhead, Green, Olive Ridley, Hawksbill) cruising the reef."),
             ("mantas", "Manta Rays", "Graceful oceanic manta & spotted eagle rays gliding with undulating wings."),
+            ("ocean_mix", "Marine Safari", "Dynamic mix of 12 rotating marine species (Sharks, Manta Rays, Sea Turtles) taking turns entering and exiting."),
             ("jellyfish", "Jellyfish", "Rhythmic deep-sea pulsing jellyfish bells with flowing tentacles & plankton."),
             ("waves", "Sea Waves", "Permanent undulating ocean waves rolling gently from top to bottom with organic lateral swell distortion."),
         ]
