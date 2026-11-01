@@ -2415,6 +2415,9 @@
           turn: 0,
           isTurning: false,
           turnCooldown: 0,
+          destX: qx + Math.cos(heading) * 350,
+          destY: qy + Math.sin(heading) * 350,
+          openSpaceTimer: rand(6, 14),
           isPivoting: false,
           pivotDir: 1,
           pivotTimer: 0,
@@ -2468,6 +2471,59 @@
           t.fleeY = y;
         }
       }
+    }
+
+    getEmptiestOceanTarget(turtleIndex) {
+      const { turtles, width: W, height: H } = this;
+      const ti = turtles[turtleIndex];
+      const hx = ti.nodes[0];
+      const hy = ti.nodes[1];
+
+      // Candidate waypoints distributed across open ocean avoiding boundary margin
+      const candidates = [
+        [W * 0.22, H * 0.24], [W * 0.50, H * 0.20], [W * 0.78, H * 0.24],
+        [W * 0.20, H * 0.50], [W * 0.50, H * 0.50], [W * 0.80, H * 0.50],
+        [W * 0.22, H * 0.76], [W * 0.50, H * 0.80], [W * 0.78, H * 0.76],
+        [W * 0.35, H * 0.35], [W * 0.65, H * 0.35],
+        [W * 0.35, H * 0.65], [W * 0.65, H * 0.65],
+      ];
+
+      let bestScore = -1e9;
+      let bestTarget = [W * 0.5, H * 0.5];
+
+      for (let c = 0; c < candidates.length; c++) {
+        const [cx, cy] = candidates[c];
+        let minOtherDist = 1e9;
+
+        for (let j = 0; j < turtles.length; j++) {
+          if (j === turtleIndex) continue;
+          const tj = turtles[j];
+          const dPos = Math.hypot(cx - tj.nodes[0], cy - tj.nodes[1]);
+          const dDest = Math.hypot(cx - (tj.destX || tj.nodes[0]), cy - (tj.destY || tj.nodes[1]));
+
+          // Heavy penalty if another turtle is already targeting or occupying this area
+          const destPenalty = dDest < 260 ? 320 : 0;
+          const effDist = Math.min(dPos, dDest) - destPenalty;
+          if (effDist < minOtherDist) {
+            minOtherDist = effDist;
+          }
+        }
+
+        // Bearing penalty: encourage forward or sweeping natural turns rather than spinning backwards
+        const bearing = Math.atan2(cy - hy, cx - hx);
+        const turnDiff = Math.abs(angleDiff(ti.heading, bearing));
+        const turnPenalty = (turnDiff / Math.PI) * 130;
+
+        const score = minOtherDist - turnPenalty;
+        if (score > bestScore) {
+          bestScore = score;
+          bestTarget = [cx, cy];
+        }
+      }
+
+      ti.destX = bestTarget[0];
+      ti.destY = bestTarget[1];
+      return bestTarget;
     }
 
     step(dt) {
@@ -2580,6 +2636,107 @@
         }
       }
 
+      // ── 1b. TANDEM DISSOLUTION & SLIPSTREAM PEEL-OFF (SEEKING OPEN OCEAN) ──
+      // User rule: "eviten estar mucho rato juntas, q se crucen no pasa nada, pero q vayan juntas tampoco"
+      // If two turtles swim in the same general direction (headingDot > 0.40) within 240px:
+      //  A. Slipstream trailing ("una conducia a la otra"): follower peels off to open water.
+      //  B. Side-by-side: fan apart into separate open sectors.
+      for (let i = 0; i < N; i++) {
+        const ti = turtles[i];
+        if (ti.isPivoting || ti.isWaiting) continue;
+        const hxi = ti.nodes[0];
+        const hyi = ti.nodes[1];
+        const fxi = Math.cos(ti.heading);
+        const fyi = Math.sin(ti.heading);
+        const nxi = -fyi;
+        const nyi = fxi;
+
+        for (let j = i + 1; j < N; j++) {
+          const tj = turtles[j];
+          if (tj.isPivoting || tj.isWaiting) continue;
+          const hxj = tj.nodes[0];
+          const hyj = tj.nodes[1];
+          const fxj = Math.cos(tj.heading);
+          const fyj = Math.sin(tj.heading);
+
+          const dx = hxj - hxi;
+          const dy = hyj - hyi;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 240) continue;
+
+          const headingDot = fxi * fxj + fyi * fyj;
+          if (headingDot <= 0.40) continue; // Crossing or diverging paths are completely natural ("q se crucen no pasa nada")
+
+          // Relative longitudinal & lateral coordinates in ti's frame
+          const fwdI = dx * fxi + dy * fyi;
+          const latI = dx * nxi + dy * nyi; // > 0 means tj is to the left of ti
+
+          if (fwdI > 30 && Math.abs(latI) < 70) {
+            // CASE A1: ti is trailing directly behind tj ("slipstream tailgating")
+            // Follower ti must peel off towards open water
+            if (ti.turnCooldown <= 0) {
+              const peelDir = latI >= 0 ? -1 : 1;
+              ti.targetHeading = ti.heading + peelDir * 0.44;
+              ti.targetLeft = peelDir > 0 ? 1.0 : 0.40;
+              ti.targetRight = peelDir > 0 ? 0.40 : 1.0;
+              ti.isTurning = true;
+              ti.turnCooldown = 3.5;
+            }
+          } else if (fwdI < -30 && Math.abs(latI) < 70) {
+            // CASE A2: tj is trailing directly behind ti
+            // Follower tj must peel off towards open water
+            if (tj.turnCooldown <= 0) {
+              const nxj = -fyj;
+              const nyj = fxj;
+              const latJ = (-dx) * nxj + (-dy) * nyj;
+              const peelDir = latJ >= 0 ? -1 : 1;
+              tj.targetHeading = tj.heading + peelDir * 0.44;
+              tj.targetLeft = peelDir > 0 ? 1.0 : 0.40;
+              tj.targetRight = peelDir > 0 ? 0.40 : 1.0;
+              tj.isTurning = true;
+              tj.turnCooldown = 3.5;
+            }
+          } else {
+            // CASE B: Side-by-side or oblique parallel cruise
+            // Fan apart smoothly: ti turns right/left away from tj, tj turns opposite
+            const peel = 0.38;
+            if (latI >= 0) {
+              // tj is to the left: ti steers right, tj steers left
+              if (ti.turnCooldown <= 0) {
+                ti.targetHeading = ti.heading - peel;
+                ti.targetLeft = 0.40;
+                ti.targetRight = 1.0;
+                ti.isTurning = true;
+                ti.turnCooldown = 3.0;
+              }
+              if (tj.turnCooldown <= 0) {
+                tj.targetHeading = tj.heading + peel;
+                tj.targetLeft = 1.0;
+                tj.targetRight = 0.40;
+                tj.isTurning = true;
+                tj.turnCooldown = 3.0;
+              }
+            } else {
+              // tj is to the right: ti steers left, tj steers right
+              if (ti.turnCooldown <= 0) {
+                ti.targetHeading = ti.heading + peel;
+                ti.targetLeft = 1.0;
+                ti.targetRight = 0.40;
+                ti.isTurning = true;
+                ti.turnCooldown = 3.0;
+              }
+              if (tj.turnCooldown <= 0) {
+                tj.targetHeading = tj.heading - peel;
+                tj.targetLeft = 0.40;
+                tj.targetRight = 1.0;
+                tj.isTurning = true;
+                tj.turnCooldown = 3.0;
+              }
+            }
+          }
+        }
+      }
+
       // ── 2. INDIVIDUAL TURTLE NAVIGATION & PROTOCOL ──
       for (let i = 0; i < N; i++) {
         const t = turtles[i];
@@ -2590,14 +2747,27 @@
 
         t.turnCooldown -= dt;
 
-        // Boundary detection: When approaching an edge, initiate a wide, smooth turn towards ocean center
+        // Boundary detection: Initiate a smooth turn towards the emptiest open ocean sector!
         const nearEdge = (hx < pad || hx > W - pad || hy < pad || hy > H - pad);
         if (nearEdge && t.turnCooldown <= 0 && !t.isTurning && !t.isPivoting && !t.isWaiting) {
-          const targetX = W / 2 + rand(-W * 0.18, W * 0.18);
-          const targetY = H / 2 + rand(-H * 0.18, H * 0.18);
-          t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.10, 0.10);
+          const [targetX, targetY] = this.getEmptiestOceanTarget(i);
+          t.targetHeading = Math.atan2(targetY - hy, targetX - hx) + rand(-0.08, 0.08);
           t.isTurning = true;
-          t.turnCooldown = 6.0;
+          t.turnCooldown = 5.0;
+        }
+
+        // Periodic open ocean exploration: seek out unpopulated "espacios en blanco"
+        t.openSpaceTimer -= dt;
+        if (t.openSpaceTimer <= 0 && !nearEdge && !t.isTurning && !t.isPivoting && !t.isWaiting && t.turnCooldown <= 0) {
+          const [targetX, targetY] = this.getEmptiestOceanTarget(i);
+          const newHeading = Math.atan2(targetY - hy, targetX - hx);
+          // Only adjust if it's a calm bearing correction (< 65 deg) to keep cruising paths straight
+          if (Math.abs(angleDiff(t.heading, newHeading)) < 1.15) {
+            t.targetHeading = newHeading;
+            t.isTurning = true;
+            t.turnCooldown = 4.5;
+          }
+          t.openSpaceTimer = rand(14, 22);
         }
 
         // Click splash fleeing response
@@ -2727,10 +2897,9 @@
             t.waitTimer = 0;
             t.targetLeft = 1.0;
             t.targetRight = 1.0;
-            t.turnCooldown = 2.0;
-            const toCenterX = (W * 0.5) - hx;
-            const toCenterY = (H * 0.5) - hy;
-            t.targetHeading = Math.atan2(toCenterY, toCenterX);
+            t.turnCooldown = 2.5;
+            const [targetX, targetY] = this.getEmptiestOceanTarget(i);
+            t.targetHeading = Math.atan2(targetY - hy, targetX - hx);
             t.isTurning = true;
           }
         }
