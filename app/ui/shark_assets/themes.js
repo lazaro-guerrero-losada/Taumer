@@ -3090,44 +3090,52 @@
   const TURTLE_NODES = 16;
   const TURTLE_SHAPES = {
     loggerhead: {
-      carapaceRatio: 0.62, // Broad, heart-shaped heavy carapace
-      shellWidth: 0.35,
-      headScale: 0.16,     // Big blocky head (Caretta caretta)
+      carapaceRatio: 0.62,
+      shellWidth: 0.22, // Narrow, hydrodynamic heart carapace
+      headScale: 0.12,
       beakSharp: false,
-      flipperSpan: 0.46,
+      flipperSpan: 0.68, // Huge, sweeping hydrofoil pectoral flippers!
       palette: "reddish_brown",
-      tint: [0.78, 0.44, 0.22], // Reddish-brown / rusty terracotta carapace with yellow-brown plastron
+      shellTint: [0.42, 0.18, 0.08], // Deep dark burnt terracotta shell
+      skinTint: [0.90, 0.70, 0.40],  // Light warm golden-tan flippers & head
+      tint: [0.42, 0.18, 0.08],
       scuteType: "loggerhead",
     },
     greenturtle: {
-      carapaceRatio: 0.65, // Smooth teardrop oval carapace (Chelonia mydas)
-      shellWidth: 0.31,
-      headScale: 0.12,     // Rounder, smaller blunt head
+      carapaceRatio: 0.65,
+      shellWidth: 0.20, // Elongated smooth teardrop oval
+      headScale: 0.11,
       beakSharp: false,
-      flipperSpan: 0.48,
+      flipperSpan: 0.70, // Long, majestic oceanic wings
       palette: "olive_green",
-      tint: [0.36, 0.58, 0.30], // Rich olive-green with radiating mottled gold/dark green rays
+      shellTint: [0.15, 0.30, 0.12], // Deep dark forest / pine-olive shell
+      skinTint: [0.55, 0.78, 0.45],  // Luminous light sage-jade flippers & head
+      tint: [0.15, 0.30, 0.12],
       scuteType: "green",
     },
     olive_ridley: {
-      carapaceRatio: 0.58, // Small, nearly circular heart-shaped dome (Lepidochelys olivacea)
-      shellWidth: 0.36,
-      headScale: 0.13,
+      carapaceRatio: 0.58,
+      shellWidth: 0.23, // Narrower dome
+      headScale: 0.11,
       beakSharp: false,
-      flipperSpan: 0.42,
+      flipperSpan: 0.65,
       palette: "slate_olive",
-      tint: [0.46, 0.52, 0.44], // Uniform muted grayish-green / olive-slate shell
+      shellTint: [0.22, 0.28, 0.22], // Deep dark charcoal-olive shell
+      skinTint: [0.65, 0.74, 0.62],  // Pale light olive-slate flippers & head
+      tint: [0.22, 0.28, 0.22],
       scuteType: "ridley",
     },
     hawksbill: {
-      carapaceRatio: 0.64, // Amber tortoiseshell with serrated posterior margins (Eretmochelys imbricata)
-      shellWidth: 0.30,
-      headScale: 0.13,
-      beakSharp: true,      // Narrow head with hawk-like pointed beak
-      serratedMargin: true, // Jagged scutes at the rear
-      flipperSpan: 0.48,
+      carapaceRatio: 0.64,
+      shellWidth: 0.19, // Slender streamlined carapace with jagged posterior scutes
+      headScale: 0.11,
+      beakSharp: true,
+      serratedMargin: true,
+      flipperSpan: 0.68,
       palette: "tortoiseshell",
-      tint: [0.78, 0.50, 0.18], // Rich amber, gold, brown tortoiseshell pattern
+      shellTint: [0.34, 0.18, 0.06], // Deep dark mahogany tortoiseshell with amber scutes
+      skinTint: [0.88, 0.70, 0.34],  // Bright golden-amber flippers & head
+      tint: [0.34, 0.18, 0.06],
       scuteType: "hawksbill",
     },
   };
@@ -3172,7 +3180,7 @@
     seed() {
       const { width: W, height: H } = this;
       const minSide = Math.min(W, H) || 600;
-      const baseLen = clamp(minSide * 0.36, 175, 310);
+      const baseLen = clamp(minSide * 0.28, 140, 220);
       const count = this.specs.length;
 
       this.turtles = [];
@@ -3514,59 +3522,58 @@
       const s = bestS;
       const a = dist;
 
-      // ── 1. HEAD & BEAK (s from 0 to 0.20) ──
+      // ── 1. HEAD & BEAK (s from 0 to 0.18, lighter skin tint) ──
       if (s <= 0.18) {
-        const headEnd = 0.14;
+        const headEnd = 0.13;
         if (s <= headEnd) {
           const pHead = s / headEnd; // 0 at snout tip, 1 at skull base
           let headW;
           if (shape.beakSharp) {
-            // Hawksbill narrow beak
-            headW = L * 0.08 * Math.sqrt(pHead) * (1 - 0.15 * pHead);
+            headW = L * 0.075 * Math.sqrt(pHead) * (1 - 0.15 * pHead);
           } else {
-            // Loggerhead/Green broader skull
-            headW = L * (shape.headScale || 0.13) * Math.sin(Math.pow(pHead, 0.62) * Math.PI * 0.88);
+            headW = L * (shape.headScale || 0.11) * Math.sin(Math.pow(pHead, 0.62) * Math.PI * 0.88);
           }
           if (a <= headW) {
-            // Lateral eyes
-            if (s >= 0.045 && s <= 0.085 && a >= headW * 0.62) {
+            if (s >= 0.040 && s <= 0.078 && a >= headW * 0.58) {
               this.hitFlag = FLAG_EYE;
               this.hitShade = 0;
             } else {
-              this.hitFlag = FLAG_BODY;
-              this.hitShade = 0.70 - 0.22 * (a / (headW || 1));
+              this.hitFlag = FLAG_MARK; // Head (lighter skin tint!)
+              this.hitShade = 0.74 - 0.22 * (a / (headW || 1));
             }
             return true;
           }
         }
-        // Neck connecting to carapace
-        const neckW = L * 0.075;
-        if (s > 0.10 && s <= 0.20 && a <= neckW) {
-          this.hitFlag = FLAG_BODY;
-          this.hitShade = 0.58;
+        // Neck connecting head to shell
+        const neckW = L * 0.065;
+        if (s > 0.09 && s <= 0.18 && a <= neckW) {
+          this.hitFlag = FLAG_MARK; // Neck (lighter skin tint!)
+          this.hitShade = 0.62;
           return true;
         }
       }
 
-      // ── 2. CARAPACE / SHELL (s from 0.18 to 0.80) ──
+      // ── 2. CARAPACE / SHELL (s from 0.18 to 0.78, narrow streamlined dark dome) ──
       const shellStart = 0.18;
-      const shellEnd = 0.80;
+      const shellEnd = 0.78;
       if (s >= shellStart && s <= shellEnd) {
         const pShell = (s - shellStart) / (shellEnd - shellStart); // 0 at anterior nuchal notch, 1 at posterior
-        const maxShellW = L * (shape.shellWidth || 0.34);
+        // Narrower, elongated streamlined carapace
+        const maxShellW = L * (shape.shellWidth || 0.22);
 
         let shellProf;
         if (shape.scuteType === "ridley") {
-          shellProf = Math.sin(Math.pow(pShell, 0.70) * Math.PI);
-        } else if (shape.scuteType === "loggerhead") {
-          shellProf = Math.sin(Math.pow(pShell, 0.62) * Math.PI) * (1 - 0.14 * pShell);
-        } else {
           shellProf = Math.sin(Math.pow(pShell, 0.72) * Math.PI);
+        } else if (shape.scuteType === "loggerhead") {
+          shellProf = Math.sin(Math.pow(pShell, 0.65) * Math.PI) * (1 - 0.18 * pShell);
+        } else {
+          // Green / Hawksbill: elegant elongated teardrop oval
+          shellProf = Math.sin(Math.pow(pShell, 0.74) * Math.PI) * (1 - 0.14 * pShell);
         }
 
         let serration = 0;
         if (shape.serratedMargin && pShell > 0.65) {
-          serration = 0.035 * Math.sin(pShell * 34) * ((pShell - 0.65) / 0.35);
+          serration = 0.03 * Math.sin(pShell * 36) * ((pShell - 0.65) / 0.35);
         }
 
         const halfW = maxShellW * (shellProf + serration);
@@ -3574,22 +3581,22 @@
           const rShell = a / (halfW || 1); // 0 at spine ridge, 1 at outer rim
 
           // Vertebral ridge (keel)
-          if (rShell < 0.09) {
+          if (rShell < 0.10) {
             this.hitFlag = FLAG_RIDGE;
             this.hitShade = 0.95;
             return true;
           }
 
           // Marginal scutes rim
-          if (rShell > 0.86) {
-            this.hitFlag = FLAG_FIN;
-            this.hitShade = 0.45;
+          if (rShell > 0.85) {
+            this.hitFlag = FLAG_RIDGE;
+            this.hitShade = 0.65;
             return true;
           }
 
           // Scute seams
-          const scuteU = pShell * 4.4;
-          const scuteV = rShell * 2.8;
+          const scuteU = pShell * 4.6;
+          const scuteV = rShell * 2.6;
           const du = Math.abs(scuteU - Math.round(scuteU));
           const dv = Math.abs(scuteV - Math.round(scuteV));
           if (Math.min(du, dv) < 0.09) {
@@ -3599,61 +3606,63 @@
           }
 
           // Hawksbill golden tortoiseshell marbling
-          if (shape.scuteType === "hawksbill" && hash3(Math.round(scuteU), Math.round(scuteV), t.id) > 0.32) {
+          if (shape.scuteType === "hawksbill" && hash3(Math.round(scuteU), Math.round(scuteV), t.id) > 0.30) {
             this.hitFlag = FLAG_WHITE_SPOT;
-            this.hitShade = 0.90;
+            this.hitShade = 0.92;
             return true;
           }
 
+          // Carapace body (uses dark shellTint!)
           this.hitFlag = FLAG_BODY;
-          this.hitShade = 0.70 - rShell * 0.24;
+          this.hitShade = 0.72 - rShell * 0.22;
           return true;
         }
       }
 
-      // ── 3. FRONT FLIPPERS (PECTORAL WINGS) ──
-      const flipperRootS = 0.24;
+      // ── 3. LARGE FRONT FLIPPERS (PECTORAL WINGS - Prominent, sweeping, long!) ──
+      const flipperRootS = 0.22;
       const stroke = Math.sin(t.strokeCycle);
-      const strokeBack = Math.cos(t.strokeCycle);
-      const aMin = L * 0.16;
-      const aMax = L * (shape.flipperSpan || 0.46);
+      const aMin = L * 0.08;
+      const aMax = L * (shape.flipperSpan || 0.68);
 
       if (a >= aMin && a <= aMax) {
         const spanProg = (a - aMin) / (aMax - aMin); // 0 at shoulder, 1 at wingtip
-        const sweep = 0.10 * stroke * (1 - spanProg) - 0.06 * strokeBack * spanProg * spanProg;
-        const flipperAxisS = flipperRootS + 0.15 * spanProg + sweep;
-        const flipperChord = 0.08 * (1 - 0.65 * spanProg) * Math.sin(Math.pow(spanProg, 0.38) * Math.PI);
+        // Natural backward sweep that curves gracefully as spanProg increases
+        const sweep = 0.12 * stroke * (1 - spanProg) + 0.24 * Math.pow(spanProg, 1.25);
+        const flipperAxisS = flipperRootS + 0.10 * spanProg + sweep;
+        // Broad, substantial blade chord so the flipper forms a solid, continuous wing
+        const flipperChord = 0.085 + 0.085 * Math.sin(spanProg * Math.PI) * (1 - 0.35 * spanProg);
         const ds = Math.abs(s - flipperAxisS);
 
         if (ds <= flipperChord) {
-          this.hitFlag = spanProg > 0.82 ? FLAG_FIN : FLAG_BODY;
-          this.hitShade = 0.64 - spanProg * 0.25;
+          this.hitFlag = FLAG_FIN; // Flippers (uses lighter skinTint!)
+          this.hitShade = 0.70 - spanProg * 0.20;
           return true;
         }
       }
 
-      // ── 4. REAR FLIPPERS (PADDLES) ──
-      const rearRootS = 0.74;
-      const rearMinA = L * 0.06;
-      const rearMaxA = L * 0.23;
-      if (a >= rearMinA && a <= rearMaxA && s >= 0.68 && s <= 0.92) {
+      // ── 4. REAR FLIPPERS (PELVIC STEERING PADDLES) ──
+      const rearRootS = 0.70;
+      const rearMinA = L * 0.05;
+      const rearMaxA = L * 0.28;
+      if (a >= rearMinA && a <= rearMaxA && s >= 0.64 && s <= 0.92) {
         const rearSpanProg = (a - rearMinA) / (rearMaxA - rearMinA);
-        const rearAxisS = rearRootS + rearSpanProg * 0.10;
-        const rearChord = 0.065 * (1 - 0.45 * rearSpanProg);
+        const rearAxisS = rearRootS + rearSpanProg * 0.12;
+        const rearChord = 0.085 * (1 - 0.35 * rearSpanProg) + 0.02;
         if (Math.abs(s - rearAxisS) <= rearChord) {
-          this.hitFlag = FLAG_FIN;
-          this.hitShade = 0.52 - rearSpanProg * 0.20;
+          this.hitFlag = FLAG_FIN; // Rear flipper paddles (lighter skinTint)
+          this.hitShade = 0.60 - rearSpanProg * 0.20;
           return true;
         }
       }
 
       // ── 5. SHORT TAIL ──
-      if (s >= 0.78 && s <= 0.92) {
-        const tailProg = (s - 0.78) / 0.14;
-        const tailW = L * 0.034 * (1 - tailProg);
+      if (s >= 0.76 && s <= 0.90) {
+        const tailProg = (s - 0.76) / 0.14;
+        const tailW = L * 0.030 * (1 - tailProg);
         if (a <= tailW) {
-          this.hitFlag = FLAG_BODY;
-          this.hitShade = 0.52;
+          this.hitFlag = FLAG_MARK; // Tail (lighter skinTint)
+          this.hitShade = 0.55;
           return true;
         }
       }
@@ -3693,7 +3702,7 @@
           minY = Math.min(minY, spine[k * 2 + 1]);
           maxY = Math.max(maxY, spine[k * 2 + 1]);
         }
-        const reach = L * (this.curShape.flipperSpan || 0.48) + 18;
+        const reach = L * (this.curShape.flipperSpan || 0.66) + 20;
         const c0 = Math.max(0, Math.floor((minX - reach) / cw));
         const c1 = Math.min(cols - 1, Math.floor((maxX + reach) / cw));
         const r0 = Math.max(0, Math.floor((minY - reach) / ch));
@@ -3756,23 +3765,20 @@
         const dim = 0.85 + 0.15 * cellDepth[i];
         const kindName = kinds[cellKind[i]] || "loggerhead";
         const shape = TURTLE_SHAPES[kindName] || TURTLE_SHAPES.loggerhead;
-        const [tr, tg, tb] = shape.tint;
-
-        const tick = Math.floor(t * 2.2 + (key % 997) / 97);
-        const roll = hash3(key, tick, 7);
 
         if (flag === FLAG_EDGE) {
           const set = shade >= 0.5 ? EDGE_HEAVY : EDGE_LIGHT;
           const glyph = set[(key >>> 8) % set.length];
-          ctx.fillStyle = `rgba(${Math.round(45 * tr)}, ${Math.round(55 * tg)}, ${Math.round(65 * tb)}, 0.75)`;
+          const [sr, sg, sb] = shape.skinTint || shape.tint;
+          ctx.fillStyle = `rgba(${Math.round(45 * sr)}, ${Math.round(50 * sg)}, ${Math.round(55 * sb)}, 0.65)`;
           ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
           continue;
         }
 
         if (flag === FLAG_WHITE_SPOT) {
           // Hawksbill golden tortoiseshell scute infill
-          const lum = Math.round(215 * dim);
-          ctx.fillStyle = `rgb(${Math.min(255, Math.round(lum * 1.15))}, ${Math.min(255, Math.round(lum * 0.85))}, ${Math.round(lum * 0.35)})`;
+          const lum = Math.round(225 * dim);
+          ctx.fillStyle = `rgb(${Math.min(255, Math.round(lum * 1.15))}, ${Math.min(255, Math.round(lum * 0.82))}, ${Math.round(lum * 0.28)})`;
           ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
           const glyph = HAWKSBILL_MARBLE_GLYPHS[(key >>> 5) % HAWKSBILL_MARBLE_GLYPHS.length];
           ctx.fillStyle = "#3e2205";
@@ -3782,23 +3788,36 @@
 
         let lum;
         let glyph;
-        if (flag === FLAG_RIDGE) {
-          // Dark scute seam / vertebral keel
-          lum = 48;
-          glyph = RIDGE_GLYPHS[(key >>> 8) % RIDGE_GLYPHS.length];
-        } else if (flag === FLAG_EYE) {
-          lum = 32;
+        let tr, tg, tb;
+
+        if (flag === FLAG_EYE) {
+          lum = 22;
           glyph = "o";
-        } else if (flag === FLAG_FIN) {
-          lum = 210 - shade * 60;
-          glyph = FIN_GLYPHS[(key >>> 8) % FIN_GLYPHS.length];
-        } else {
-          lum = 224 - shade * 84;
+          [tr, tg, tb] = [1, 1, 1];
+        } else if (flag === FLAG_RIDGE) {
+          // Dark scute seams & vertebral keel
+          lum = 42 * dim;
+          glyph = RIDGE_GLYPHS[(key >>> 8) % RIDGE_GLYPHS.length];
+          [tr, tg, tb] = shape.shellTint || shape.tint;
+        } else if (flag === FLAG_BODY) {
+          // ── CARAPACE / SHELL (Distinctly darker armored dome as requested!) ──
+          lum = (122 - shade * 38) * dim;
           const jitter = ((key >>> 4) % 3) - 1;
           glyph = SKIN_RAMP[clamp(Math.floor(shade * 8.99) + jitter, 0, SKIN_RAMP.length - 1)];
+          [tr, tg, tb] = shape.shellTint || shape.tint;
+        } else {
+          // ── APPENDAGES: LARGE PROMINENT FLIPPERS & HEAD (Lighter, bright, highly recognizable!) ──
+          lum = (222 - shade * 32) * dim;
+          if (flag === FLAG_FIN) {
+            const FLIP_GLYPHS = "%;tS~";
+            glyph = FLIP_GLYPHS[(key >>> 8) % FLIP_GLYPHS.length];
+          } else {
+            const jitter = ((key >>> 4) % 3) - 1;
+            glyph = SKIN_RAMP[clamp(Math.floor(shade * 8.99) + jitter, 0, SKIN_RAMP.length - 1)];
+          }
+          [tr, tg, tb] = shape.skinTint || shape.tint;
         }
 
-        lum *= dim;
         const r = clamp(Math.round(lum * tr), 0, 255);
         const g = clamp(Math.round(lum * tg), 0, 255);
         const b = clamp(Math.round(lum * tb), 0, 255);
@@ -3808,13 +3827,16 @@
         let glyphColor;
         if (flag === FLAG_EYE) {
           glyphColor = "#ffffff";
-        } else if (roll < 0.035) {
-          glyphColor = ACCENTS[key % ACCENTS.length];
         } else if (flag === FLAG_RIDGE) {
-          glyphColor = "#fef08a"; // Soft golden seam highlight
+          glyphColor = "#fef08a"; // Soft golden scute seam line
+        } else if (flag === FLAG_BODY) {
+          // Subtle warm texture on dark shell
+          glyphColor = `rgb(${Math.min(255, r + 55)}, ${Math.min(255, g + 55)}, ${Math.min(255, b + 45)})`;
         } else {
-          glyphColor = `rgb(${Math.min(255, r + 42)}, ${Math.min(255, g + 46)}, ${Math.min(255, b + 52)})`;
+          // High contrast dark slate glyph text on lighter flippers & head
+          glyphColor = `rgb(${Math.max(0, Math.round(r * 0.40))}, ${Math.max(0, Math.round(g * 0.40))}, ${Math.max(0, Math.round(b * 0.35))})`;
         }
+
         ctx.fillStyle = glyphColor;
         ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
       }
