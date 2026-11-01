@@ -3091,43 +3091,43 @@
   const TURTLE_SHAPES = {
     loggerhead: {
       carapaceRatio: 0.62, // Broad, heart-shaped heavy carapace
-      shellWidth: 0.44,
-      headScale: 0.17,     // Big blocky head (Caretta caretta)
+      shellWidth: 0.35,
+      headScale: 0.16,     // Big blocky head (Caretta caretta)
       beakSharp: false,
       flipperSpan: 0.46,
       palette: "reddish_brown",
-      tint: [0.78, 0.42, 0.22], // Reddish-brown / rusty terracotta carapace with yellow-brown plastron
+      tint: [0.78, 0.44, 0.22], // Reddish-brown / rusty terracotta carapace with yellow-brown plastron
       scuteType: "loggerhead",
     },
     greenturtle: {
       carapaceRatio: 0.65, // Smooth teardrop oval carapace (Chelonia mydas)
-      shellWidth: 0.42,
-      headScale: 0.13,     // Rounder, smaller blunt head
+      shellWidth: 0.31,
+      headScale: 0.12,     // Rounder, smaller blunt head
       beakSharp: false,
       flipperSpan: 0.48,
       palette: "olive_green",
-      tint: [0.38, 0.58, 0.32], // Rich olive-green with radiating mottled gold/dark green rays
+      tint: [0.36, 0.58, 0.30], // Rich olive-green with radiating mottled gold/dark green rays
       scuteType: "green",
     },
     olive_ridley: {
       carapaceRatio: 0.58, // Small, nearly circular heart-shaped dome (Lepidochelys olivacea)
-      shellWidth: 0.46,
-      headScale: 0.14,
+      shellWidth: 0.36,
+      headScale: 0.13,
       beakSharp: false,
       flipperSpan: 0.42,
       palette: "slate_olive",
-      tint: [0.46, 0.52, 0.42], // Uniform muted grayish-green / olive-slate shell
+      tint: [0.46, 0.52, 0.44], // Uniform muted grayish-green / olive-slate shell
       scuteType: "ridley",
     },
     hawksbill: {
       carapaceRatio: 0.64, // Amber tortoiseshell with serrated posterior margins (Eretmochelys imbricata)
-      shellWidth: 0.40,
-      headScale: 0.14,
+      shellWidth: 0.30,
+      headScale: 0.13,
       beakSharp: true,      // Narrow head with hawk-like pointed beak
       serratedMargin: true, // Jagged scutes at the rear
-      flipperSpan: 0.50,
+      flipperSpan: 0.48,
       palette: "tortoiseshell",
-      tint: [0.82, 0.54, 0.18], // Rich amber, gold, brown tortoiseshell pattern
+      tint: [0.78, 0.50, 0.18], // Rich amber, gold, brown tortoiseshell pattern
       scuteType: "hawksbill",
     },
   };
@@ -3475,170 +3475,185 @@
     }
 
     sampleTurtle(px, py) {
-      const { spine, curTurtle: t, curShape: shape } = this;
+      const { spine, arc, curTurtle: t, curShape: shape } = this;
       const L = this.arcTotal;
+      const N = TURTLE_NODES;
 
-      // Coordinate system along turtle's spine (head = node 0, tail = node 15)
-      const hx = spine[0];
-      const hy = spine[1];
-      const tx = spine[TURTLE_NODES * 2 - 2];
-      const ty = spine[TURTLE_NODES * 2 - 1];
-      const dx = tx - hx;
-      const dy = ty - hy;
-      const bodyLen = Math.hypot(dx, dy) || 1;
-      const ux = dx / bodyLen;
-      const uy = dy / bodyLen;
-      const nx = -uy;
-      const ny = ux;
+      let best = Infinity;
+      let bestS = 0;
+      let bestSign = 1;
 
-      const relX = px - hx;
-      const relY = py - hy;
-      const u = relX * ux + relY * uy;
-      const sd = u / bodyLen; // 0 at head, 1 at tail
-      const v = relX * nx + relY * ny;
-      const a = Math.abs(v);
-      const signV = v >= 0 ? 1 : -1;
-
-      this.hitDist = Math.hypot(u - clamp(u, 0, bodyLen), a);
-      this.hitS = clamp(sd, 0, 1);
-      this.hitV = v;
-
-      // ── 1. HEAD & BEAK (sd from -0.06 to 0.18) ──
-      const headL = shape.headScale || 0.15;
-      const headCenterSd = headL * 0.55;
-      if (sd >= -0.03 && sd <= headL + 0.04) {
-        const headProg = clamp((sd + 0.03) / (headL + 0.07), 0, 1);
-        let headW;
-        if (shape.beakSharp) {
-          // Hawksbill: narrow, hawk-like pointed beak
-          headW = headL * L * 0.48 * Math.pow(headProg, 0.72) * (1 - 0.28 * headProg);
-        } else {
-          // Loggerhead/Green: broader, powerful rounded head
-          headW = headL * L * 0.56 * Math.sin(Math.pow(headProg, 0.6) * Math.PI * 0.85);
+      for (let k = 0; k < N - 1; k++) {
+        const ax = spine[k * 2];
+        const ay = spine[k * 2 + 1];
+        const bx = spine[(k + 1) * 2];
+        const by = spine[(k + 1) * 2 + 1];
+        const abx = bx - ax;
+        const aby = by - ay;
+        const ab2 = abx * abx + aby * aby || 1e-6;
+        const apx = px - ax;
+        const apy = py - ay;
+        const param = clamp((apx * abx + apy * aby) / ab2, 0, 1);
+        const qx = ax + abx * param;
+        const qy = ay + aby * param;
+        const d2 = (px - qx) ** 2 + (py - qy) ** 2;
+        if (d2 < best) {
+          best = d2;
+          const sAlong = (arc[k] + Math.sqrt(ab2) * param) / this.arcTotal;
+          bestS = clamp(sAlong, 0, 1);
+          const cross = abx * apy - aby * apx;
+          bestSign = cross >= 0 ? 1 : -1;
         }
-        if (a <= headW) {
-          // Eyes placed laterally on the upper third of the head
-          const eyeDist = Math.hypot((sd - headL * 0.45) * 5.0, (a - headW * 0.78) * 4.5);
-          if (eyeDist < 0.14) {
-            this.hitFlag = FLAG_EYE;
-            this.hitShade = 0;
+      }
+
+      const dist = Math.sqrt(best);
+      this.hitDist = dist;
+      this.hitS = bestS;
+      this.hitV = dist * bestSign;
+
+      const s = bestS;
+      const a = dist;
+
+      // ── 1. HEAD & BEAK (s from 0 to 0.20) ──
+      if (s <= 0.18) {
+        const headEnd = 0.14;
+        if (s <= headEnd) {
+          const pHead = s / headEnd; // 0 at snout tip, 1 at skull base
+          let headW;
+          if (shape.beakSharp) {
+            // Hawksbill narrow beak
+            headW = L * 0.08 * Math.sqrt(pHead) * (1 - 0.15 * pHead);
           } else {
-            this.hitFlag = FLAG_BODY;
-            this.hitShade = 0.70 - 0.22 * (a / (headW || 1));
+            // Loggerhead/Green broader skull
+            headW = L * (shape.headScale || 0.13) * Math.sin(Math.pow(pHead, 0.62) * Math.PI * 0.88);
           }
+          if (a <= headW) {
+            // Lateral eyes
+            if (s >= 0.045 && s <= 0.085 && a >= headW * 0.62) {
+              this.hitFlag = FLAG_EYE;
+              this.hitShade = 0;
+            } else {
+              this.hitFlag = FLAG_BODY;
+              this.hitShade = 0.70 - 0.22 * (a / (headW || 1));
+            }
+            return true;
+          }
+        }
+        // Neck connecting to carapace
+        const neckW = L * 0.075;
+        if (s > 0.10 && s <= 0.20 && a <= neckW) {
+          this.hitFlag = FLAG_BODY;
+          this.hitShade = 0.58;
           return true;
         }
       }
 
-      // ── 2. CARAPACE / SHELL (sd from 0.18 to 0.82) ──
+      // ── 2. CARAPACE / SHELL (s from 0.18 to 0.80) ──
       const shellStart = 0.18;
-      const shellEnd = 0.82;
-      if (sd >= shellStart && sd <= shellEnd) {
-        const sNorm = (sd - shellStart) / (shellEnd - shellStart); // 0 at anterior nuchal notch, 1 at posterior
-        const maxShellW = L * (shape.shellWidth || 0.42);
+      const shellEnd = 0.80;
+      if (s >= shellStart && s <= shellEnd) {
+        const pShell = (s - shellStart) / (shellEnd - shellStart); // 0 at anterior nuchal notch, 1 at posterior
+        const maxShellW = L * (shape.shellWidth || 0.34);
 
-        // Hydrodynamic heart/oval carapace silhouette
-        let shellProfile;
+        let shellProf;
         if (shape.scuteType === "ridley") {
-          // Olive Ridley: wide, almost circular dome
-          shellProfile = Math.sin(Math.pow(sNorm, 0.7) * Math.PI);
+          shellProf = Math.sin(Math.pow(pShell, 0.70) * Math.PI);
         } else if (shape.scuteType === "loggerhead") {
-          // Loggerhead: broad shoulders tapering toward posterior
-          shellProfile = Math.sin(Math.pow(sNorm, 0.62) * Math.PI) * (1 - 0.14 * sNorm);
+          shellProf = Math.sin(Math.pow(pShell, 0.62) * Math.PI) * (1 - 0.14 * pShell);
         } else {
-          // Green / Hawksbill: classic elegant teardrop oval
-          shellProfile = Math.sin(Math.pow(sNorm, 0.75) * Math.PI);
+          shellProf = Math.sin(Math.pow(pShell, 0.72) * Math.PI);
         }
 
-        // Serrated rear marginal scutes for Hawksbill
         let serration = 0;
-        if (shape.serratedMargin && sNorm > 0.68) {
-          serration = 0.04 * Math.sin(sNorm * 38) * ((sNorm - 0.68) / 0.32);
+        if (shape.serratedMargin && pShell > 0.65) {
+          serration = 0.035 * Math.sin(pShell * 34) * ((pShell - 0.65) / 0.35);
         }
 
-        const halfW = maxShellW * (shellProfile + serration);
+        const halfW = maxShellW * (shellProf + serration);
         if (a <= halfW) {
-          const rShell = a / (halfW || 1); // 0 at vertebral ridge, 1 at marginal rim
+          const rShell = a / (halfW || 1); // 0 at spine ridge, 1 at outer rim
 
-          // Vertebral ridge (central keel along spine)
-          if (rShell < 0.08) {
+          // Vertebral ridge (keel)
+          if (rShell < 0.09) {
             this.hitFlag = FLAG_RIDGE;
             this.hitShade = 0.95;
             return true;
           }
 
-          // Marginal scutes (outer rim of shell)
+          // Marginal scutes rim
           if (rShell > 0.86) {
             this.hitFlag = FLAG_FIN;
             this.hitShade = 0.45;
             return true;
           }
 
-          // Scute seams & tortoiseshell patterns
-          const scuteU = sNorm * 6.5;
-          const scuteV = rShell * 3.2;
-          const seamDist = Math.min(Math.abs(scuteU - Math.round(scuteU)), Math.abs(scuteV - Math.round(scuteV)));
-
-          if (seamDist < 0.08) {
-            this.hitFlag = FLAG_RIDGE; // Dark scute division groove
+          // Scute seams
+          const scuteU = pShell * 4.4;
+          const scuteV = rShell * 2.8;
+          const du = Math.abs(scuteU - Math.round(scuteU));
+          const dv = Math.abs(scuteV - Math.round(scuteV));
+          if (Math.min(du, dv) < 0.09) {
+            this.hitFlag = FLAG_RIDGE;
             this.hitShade = 0.85;
-          } else if (shape.scuteType === "hawksbill" && (hash3(Math.round(scuteU), Math.round(scuteV), t.id) > 0.35)) {
-            // Hawksbill amber marbling
+            return true;
+          }
+
+          // Hawksbill golden tortoiseshell marbling
+          if (shape.scuteType === "hawksbill" && hash3(Math.round(scuteU), Math.round(scuteV), t.id) > 0.32) {
             this.hitFlag = FLAG_WHITE_SPOT;
             this.hitShade = 0.90;
-          } else {
-            this.hitFlag = FLAG_BODY;
-            this.hitShade = 0.68 - rShell * 0.22;
+            return true;
           }
+
+          this.hitFlag = FLAG_BODY;
+          this.hitShade = 0.70 - rShell * 0.24;
           return true;
         }
       }
 
       // ── 3. FRONT FLIPPERS (PECTORAL WINGS) ──
-      // Long, swept wing-like flippers executing a graceful rowing stroke
-      const flipperRootSd = 0.26;
+      const flipperRootS = 0.24;
       const stroke = Math.sin(t.strokeCycle);
       const strokeBack = Math.cos(t.strokeCycle);
+      const aMin = L * 0.16;
+      const aMax = L * (shape.flipperSpan || 0.46);
 
-      // Flipper reaches from root out to wingSpan
-      const maxSpan = L * (shape.flipperSpan || 0.46);
-      if (a >= L * 0.12 && a <= maxSpan + L * 0.05) {
-        const spanProg = (a - L * 0.12) / maxSpan; // 0 at shoulder, 1 at flipper tip
-        // Rowing stroke sweeps flipper forward and back with tip lagging
-        const sweep = (stroke * 0.12 - spanProg * strokeBack * 0.06);
-        const flipperAxisSd = flipperRootSd + spanProg * 0.22 + sweep;
-        const flipperChord = L * 0.11 * (1 - spanProg * 0.58) * Math.sin(Math.pow(spanProg, 0.4) * Math.PI);
-        const dAxis = Math.abs(sd - flipperAxisSd);
+      if (a >= aMin && a <= aMax) {
+        const spanProg = (a - aMin) / (aMax - aMin); // 0 at shoulder, 1 at wingtip
+        const sweep = 0.10 * stroke * (1 - spanProg) - 0.06 * strokeBack * spanProg * spanProg;
+        const flipperAxisS = flipperRootS + 0.15 * spanProg + sweep;
+        const flipperChord = 0.08 * (1 - 0.65 * spanProg) * Math.sin(Math.pow(spanProg, 0.38) * Math.PI);
+        const ds = Math.abs(s - flipperAxisS);
 
-        if (dAxis <= flipperChord) {
-          this.hitFlag = spanProg > 0.88 ? FLAG_FIN : FLAG_BODY;
-          this.hitShade = 0.62 - spanProg * 0.25;
+        if (ds <= flipperChord) {
+          this.hitFlag = spanProg > 0.82 ? FLAG_FIN : FLAG_BODY;
+          this.hitShade = 0.64 - spanProg * 0.25;
           return true;
         }
       }
 
-      // ── 4. REAR FLIPPERS (RUDDERS) ──
-      // Shorter, paddle-shaped flippers at the rear (sd ~ 0.76 to 0.94)
-      const rearRootSd = 0.78;
-      const rearMaxSpan = L * 0.22;
-      if (a >= L * 0.06 && a <= rearMaxSpan + L * 0.04 && sd >= 0.72 && sd <= 0.96) {
-        const rearSpanProg = (a - L * 0.06) / rearMaxSpan;
-        const rearAxisSd = rearRootSd + rearSpanProg * 0.12;
-        const rearChord = L * 0.075 * (1 - rearSpanProg * 0.45);
-        if (Math.abs(sd - rearAxisSd) <= rearChord) {
+      // ── 4. REAR FLIPPERS (PADDLES) ──
+      const rearRootS = 0.74;
+      const rearMinA = L * 0.06;
+      const rearMaxA = L * 0.23;
+      if (a >= rearMinA && a <= rearMaxA && s >= 0.68 && s <= 0.92) {
+        const rearSpanProg = (a - rearMinA) / (rearMaxA - rearMinA);
+        const rearAxisS = rearRootS + rearSpanProg * 0.10;
+        const rearChord = 0.065 * (1 - 0.45 * rearSpanProg);
+        if (Math.abs(s - rearAxisS) <= rearChord) {
           this.hitFlag = FLAG_FIN;
-          this.hitShade = 0.55 - rearSpanProg * 0.2;
+          this.hitShade = 0.52 - rearSpanProg * 0.20;
           return true;
         }
       }
 
-      // ── 5. SHORT TAIL (sd from 0.82 to 0.94) ──
-      if (sd >= 0.82 && sd <= 0.94) {
-        const tailProg = (sd - 0.82) / 0.12;
-        const tailW = L * 0.038 * (1 - tailProg);
+      // ── 5. SHORT TAIL ──
+      if (s >= 0.78 && s <= 0.92) {
+        const tailProg = (s - 0.78) / 0.14;
+        const tailW = L * 0.034 * (1 - tailProg);
         if (a <= tailW) {
           this.hitFlag = FLAG_BODY;
-          this.hitShade = 0.55;
+          this.hitShade = 0.52;
           return true;
         }
       }
@@ -3660,7 +3675,16 @@
         const spine = this.spine;
         const nodes = turtle.nodes;
         for (let k = 0; k < TURTLE_NODES * 2; k++) spine[k] = nodes[k];
-        this.arcTotal = L;
+
+        let acc = 0;
+        this.arc[0] = 0;
+        for (let k = 0; k < TURTLE_NODES - 1; k++) {
+          const dx = spine[(k + 1) * 2] - spine[k * 2];
+          const dy = spine[(k + 1) * 2 + 1] - spine[k * 2 + 1];
+          acc += Math.hypot(dx, dy);
+          this.arc[k + 1] = acc;
+        }
+        this.arcTotal = acc || turtle.length;
 
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         for (let k = 0; k < TURTLE_NODES; k++) {
@@ -3820,52 +3844,41 @@
   const BIRD_SPECIES = {
     goose: {
       name: "Canada Goose",
-      wingSpan: 24,
-      bodyLen: 18,
-      neckLen: 9,
-      wingStyle: "broad",
+      wingSpan: 92,
+      bodyLen: 56,
+      neckLen: 18,
       wingBeatSpeed: 2.8,
-      glideRatio: 0.35,
-      color: "rgba(45, 40, 35, 0.88)",
-      accentColor: "#f8fafc", // White cheek patch
-      secondaryColor: "rgba(100, 90, 80, 0.75)",
+      tint: [0.36, 0.34, 0.32], // Charcoal-brown plumage
+      wingTint: [0.16, 0.15, 0.15],
     },
     crane: {
       name: "Sandhill Crane",
-      wingSpan: 30,
-      bodyLen: 22,
-      neckLen: 14,
-      legLen: 12,
-      wingStyle: "plumed",
-      wingBeatSpeed: 2.2,
-      glideRatio: 0.50,
-      color: "rgba(75, 85, 95, 0.85)", // Slate gray
-      accentColor: "#dc2626", // Red crown cap
-      secondaryColor: "rgba(148, 163, 184, 0.70)",
+      wingSpan: 112,
+      bodyLen: 68,
+      neckLen: 24,
+      legLen: 24,
+      wingBeatSpeed: 2.1,
+      tint: [0.46, 0.52, 0.60], // Slate gray
+      wingTint: [0.26, 0.30, 0.36],
     },
     ibis: {
       name: "Glossy Ibis",
-      wingSpan: 20,
-      bodyLen: 15,
-      neckLen: 8,
+      wingSpan: 80,
+      bodyLen: 48,
+      neckLen: 14,
       curvedBeak: true,
-      wingBeatSpeed: 3.4,
-      glideRatio: 0.28,
-      color: "rgba(78, 42, 38, 0.88)", // Deep bronze/chestnut
-      accentColor: "#38bdf8", // Subtle iridescent sheen
-      secondaryColor: "rgba(110, 60, 50, 0.75)",
+      wingBeatSpeed: 3.2,
+      tint: [0.55, 0.28, 0.16], // Deep bronze-chestnut
+      wingTint: [0.32, 0.18, 0.12],
     },
     swift: {
       name: "Alpine Swift",
-      wingSpan: 18,
-      bodyLen: 12,
-      neckLen: 4,
-      wingStyle: "crescent",
-      wingBeatSpeed: 4.8,
-      glideRatio: 0.60,
-      color: "rgba(30, 41, 59, 0.90)", // Dark slate-charcoal
-      accentColor: "#f1f5f9", // White breast throat
-      secondaryColor: "rgba(71, 85, 105, 0.75)",
+      wingSpan: 70,
+      bodyLen: 40,
+      neckLen: 8,
+      wingBeatSpeed: 4.6,
+      tint: [0.24, 0.28, 0.36], // Aerodynamic dark slate
+      wingTint: [0.15, 0.18, 0.24],
     },
   };
 
@@ -3882,11 +3895,11 @@
       this.pointer = { x: 0, y: 0, active: false };
 
       // Background clouds velocity: drifting downwards from top to down (+Y)
-      this.cloudSpeed = 16; // px/sec down
+      this.cloudSpeed = 15; // px/sec down
 
       // Birds fly upwards from down to top (-Y)
-      this.birdFlightSpeed = 52; // px/sec up
-      this.flockSpawnTimer = 1.0;
+      this.birdFlightSpeed = 50; // px/sec up
+      this.flockSpawnTimer = 0.5;
     }
 
     resize(width, height) {
@@ -3922,8 +3935,8 @@
     createFlock(speciesKey, apexX, apexY, birdCount = 9) {
       const sp = BIRD_SPECIES[speciesKey] || BIRD_SPECIES.goose;
       const birds = [];
-      const vAngle = rand(0.55, 0.75); // Half-angle of the V formation (~35 to 43 deg)
-      const spacing = sp.wingSpan * rand(1.35, 1.75);
+      const vAngle = 0.62; // ~35 deg half-angle of the V formation
+      const spacing = sp.wingSpan * rand(1.15, 1.40);
 
       // Apex bird (leader at position 0)
       birds.push({
@@ -3943,22 +3956,22 @@
 
         // Left wing bird
         birds.push({
-          relX: -Math.sin(vAngle) * dist + rand(-4, 4),
-          relY: Math.cos(vAngle) * dist + rand(-3, 3),
+          relX: -Math.sin(vAngle) * dist + rand(-3, 3),
+          relY: Math.cos(vAngle) * dist + rand(-2, 2),
           wingPhase: -phaseLag,
           wingPhaseOffset: rand(-0.1, 0.1),
           lag: p,
-          size: rand(0.92, 1.02),
+          size: rand(0.94, 1.02),
         });
 
         // Right wing bird
         birds.push({
-          relX: Math.sin(vAngle) * dist + rand(-4, 4),
-          relY: Math.cos(vAngle) * dist + rand(-3, 3),
+          relX: Math.sin(vAngle) * dist + rand(-3, 3),
+          relY: Math.cos(vAngle) * dist + rand(-2, 2),
           wingPhase: -phaseLag - 0.1,
           wingPhaseOffset: rand(-0.1, 0.1),
           lag: p,
-          size: rand(0.92, 1.02),
+          size: rand(0.94, 1.02),
         });
       }
 
@@ -3966,11 +3979,10 @@
         species: speciesKey,
         apexX,
         apexY,
-        vx: rand(-6, 6),
-        vy: -rand(45, 62), // Flying upwards (down to top)
+        vx: rand(-4, 4),
+        vy: -rand(45, 58), // Flying upwards (down to top)
         birds,
         bobPhase: rand(0, TAU),
-        formationDrift: rand(-0.15, 0.15),
       };
     }
 
@@ -3978,22 +3990,20 @@
       this.flocks = [];
       const keys = Object.keys(BIRD_SPECIES);
       // Spawn 2 initial flocks in view
-      const f1 = this.createFlock(keys[0], this.width * 0.35, this.height * 0.65, 9);
-      const f2 = this.createFlock(keys[1], this.width * 0.72, this.height * 1.05, 11);
+      const f1 = this.createFlock(keys[0], this.width * 0.36, this.height * 0.58, 7);
+      const f2 = this.createFlock(keys[1], this.width * 0.72, this.height * 0.95, 9);
       this.flocks.push(f1, f2);
     }
 
     splash(x, y) {
       this.events.push({ kind: "pulse", x, y });
-      // Clapping / clicking startles nearby birds, making them flare wings and bank slightly
       for (const flock of this.flocks) {
         const dx = flock.apexX - x;
         const dy = flock.apexY - y;
         const d = Math.hypot(dx, dy);
         if (d < 220) {
-          const steer = dx > 0 ? 16 : -16;
-          flock.vx += steer;
-          flock.vy -= 14;
+          flock.vx += dx > 0 ? 16 : -16;
+          flock.vy -= 12;
         }
       }
     }
@@ -4024,19 +4034,16 @@
         f.apexY += f.vy * dt;
         f.bobPhase += dt * 1.2;
 
-        // Gentle sinuous migratory path
-        f.vx += Math.sin(this.time * 0.4 + f.bobPhase) * 2.2 * dt;
-        f.vx = clamp(f.vx, -15, 15);
+        f.vx += Math.sin(this.time * 0.4 + f.bobPhase) * 2.0 * dt;
+        f.vx = clamp(f.vx, -14, 14);
 
-        // Advance wing flap kinematics for each bird in the V
         for (const b of f.birds) {
           b.wingPhase += dt * sp.wingBeatSpeed;
         }
 
-        // Check if entire formation has migrated off the top screen
         let allPastTop = true;
         for (const b of f.birds) {
-          if (f.apexY + b.relY > -80) {
+          if (f.apexY + b.relY > -100) {
             allPastTop = false;
             break;
           }
@@ -4049,11 +4056,10 @@
       // ── 3. SPAWN NEW MIGRATORY SKEINS AT THE BOTTOM (+Y) ──
       this.flockSpawnTimer -= dt;
       if (this.flockSpawnTimer <= 0) {
-        this.flockSpawnTimer = rand(10, 18);
+        this.flockSpawnTimer = rand(9, 16);
         const keys = Object.keys(BIRD_SPECIES);
         const spKey = keys[Math.floor(Math.random() * keys.length)];
-        const birdCount = Math.floor(rand(7, 13));
-        // Spawn at bottom (below view) heading upwards
+        const birdCount = Math.floor(rand(7, 11));
         const apexX = rand(W * 0.18, W * 0.82);
         const apexY = H + 80;
         this.flocks.push(this.createFlock(spKey, apexX, apexY, birdCount));
@@ -4073,6 +4079,7 @@
       const t = world.time;
 
       this.consumeEvents(world);
+      this.rasterizeBirds(world.flocks, t);
       this.diffuse(dt);
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -4088,8 +4095,8 @@
       // 1. Draw atmospheric background drifting clouds (TOP -> DOWN)
       this.drawClouds(world, t);
 
-      // 2. Draw migrating bird formations upfront (DOWN -> TOP)
-      this.drawBirdFlocks(world, t);
+      // 2. Draw migrating bird formations upfront (DOWN -> TOP) in authentic stackedlol ASCII style!
+      this.drawBirdCells(world, t);
     }
 
     drawClouds(world, t) {
@@ -4099,7 +4106,6 @@
         for (let c = 0; c < cols; c++) {
           const px = (c + 0.5) * cw;
 
-          // Sample cloud density from all drifting clouds
           let density = 0;
           for (const cl of world.clouds) {
             const dx = (px - cl.x) / cl.rx;
@@ -4120,8 +4126,7 @@
             );
             const glyph = CLOUD_DENSITY_GLYPHS[gIdx];
             if (glyph !== " ") {
-              // Soft ethereal cloud opacity fading cleanly into white background
-              const alpha = clamp(dClamped * 0.32, 0.08, 0.34).toFixed(3);
+              const alpha = clamp(dClamped * 0.28, 0.06, 0.30).toFixed(3);
               ctx.fillStyle = `rgba(148, 163, 184, ${alpha})`;
               ctx.fillText(glyph, px, py + 1);
             }
@@ -4130,156 +4135,260 @@
       }
     }
 
-    drawBirdFlocks(world, t) {
-      const { ctx } = this;
+    sampleBird(px, py, bird, flock) {
+      const sp = BIRD_SPECIES[flock.species] || BIRD_SPECIES.goose;
+      const bx = flock.apexX + bird.relX;
+      const by = flock.apexY + bird.relY;
 
-      for (const f of world.flocks) {
+      // Coordinate frame aligned to bird flight vector (heading upwards towards -Y)
+      const ang = Math.atan2(flock.vy, flock.vx);
+      const fx = Math.cos(ang);
+      const fy = Math.sin(ang);
+      const nx = -fy;
+      const ny = fx;
+
+      const dx = px - bx;
+      const dy = py - by;
+      // u: forward along flight direction (+ towards beak, - towards tail)
+      const u = -(dx * fx + dy * fy);
+      // v: lateral perpendicular to flight direction
+      const v = dx * nx + dy * ny;
+      const a = Math.abs(v);
+
+      const L = sp.bodyLen * (bird.size || 1.0);
+      const S = sp.wingSpan * 0.5 * (bird.size || 1.0);
+      const flap = Math.sin(bird.wingPhase + bird.wingPhaseOffset);
+
+      // ── 1. FUSELAGE (BODY, HEAD, BEAK, TAIL) ──
+      const uTail = -L * 0.44;
+      const uHead = L * 0.56;
+
+      if (u >= uTail && u <= uHead) {
+        if (u > L * 0.12) {
+          // Neck & Head
+          const pHead = (u - L * 0.12) / (uHead - L * 0.12);
+          const wHead = L * 0.10 * Math.sin((1 - pHead) * 0.85 * Math.PI + 0.15) + 3.2;
+
+          if (a <= wHead) {
+            if (flock.species === "goose") {
+              // Canada Goose white cheek patch and black head
+              if (pHead >= 0.36 && pHead <= 0.70 && a >= wHead * 0.40) {
+                this.hitFlag = FLAG_WHITE_PATCH;
+                this.hitShade = 0.95;
+              } else if (pHead >= 0.46 && pHead <= 0.66 && a >= wHead * 0.65) {
+                this.hitFlag = FLAG_EYE;
+                this.hitShade = 0;
+              } else {
+                this.hitFlag = FLAG_BODY;
+                this.hitShade = 0.88; // Deep black head
+              }
+            } else if (flock.species === "crane") {
+              // Sandhill Crane crimson red crown
+              if (pHead >= 0.65) {
+                this.hitFlag = FLAG_MARK;
+                this.hitShade = 1.0;
+              } else if (pHead >= 0.48 && pHead <= 0.65 && a >= wHead * 0.62) {
+                this.hitFlag = FLAG_EYE;
+                this.hitShade = 0;
+              } else {
+                this.hitFlag = FLAG_BODY;
+                this.hitShade = 0.58;
+              }
+            } else if (flock.species === "swift") {
+              // Alpine Swift white throat
+              if (pHead >= 0.20 && pHead <= 0.55) {
+                this.hitFlag = FLAG_WHITE_PATCH;
+                this.hitShade = 0.95;
+              } else {
+                this.hitFlag = FLAG_BODY;
+                this.hitShade = 0.75;
+              }
+            } else {
+              // Glossy Ibis slender head
+              this.hitFlag = FLAG_BODY;
+              this.hitShade = 0.66;
+            }
+            this.hitS = pHead;
+            this.hitV = v;
+            return true;
+          }
+        } else {
+          // Torso & Belly
+          const pTorso = (u - uTail) / (L * 0.56);
+          const wTorso = L * 0.18 * Math.sin(pTorso * Math.PI) + 3.8;
+          if (a <= wTorso) {
+            this.hitFlag = FLAG_BODY;
+            this.hitShade = 0.65 - 0.20 * (a / (wTorso || 1));
+            this.hitS = pTorso;
+            this.hitV = v;
+            return true;
+          }
+        }
+      }
+
+      // Sandhill Crane long trailing legs extending backwards
+      if (flock.species === "crane" && u < uTail && u >= uTail - (sp.legLen || 20)) {
+        if (a <= 2.8) {
+          this.hitFlag = FLAG_FIN;
+          this.hitShade = 0.42;
+          this.hitS = 0;
+          this.hitV = v;
+          return true;
+        }
+      }
+
+      // ── 2. FLAPPING WINGS ──
+      const aRoot = L * 0.10;
+      const aTip = S;
+
+      if (a >= aRoot && a <= aTip) {
+        const rSpan = (a - aRoot) / (aTip - aRoot); // 0 at shoulder, 1 at wingtip
+        const uFlap = 8.5 * flap * Math.pow(rSpan, 1.25);
+        // Swept-back aerodynamic wing leading edge
+        const uLead = L * 0.16 - (L * 0.35) * Math.pow(rSpan, 1.1) + uFlap;
+        // Plumed wing chord that narrows towards wingtip
+        const wChord = (L * 0.44) * (1 - 0.52 * rSpan) * (1 - 0.12 * flap) + 6.0;
+        const uTrail = uLead - wChord;
+
+        if (u <= uLead && u >= uTrail) {
+          if (rSpan > 0.72) {
+            this.hitFlag = FLAG_FIN; // Flight primaries
+            this.hitShade = 0.82;
+          } else if (u > uLead - 3.2) {
+            this.hitFlag = FLAG_RIDGE; // Leading edge
+            this.hitShade = 0.90;
+          } else {
+            this.hitFlag = FLAG_BODY;
+            this.hitShade = 0.64 - 0.18 * rSpan;
+          }
+          this.hitS = rSpan;
+          this.hitV = v;
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    rasterizeBirds(flocks, t) {
+      const { cellFlag, cellShade, cellKey, cellDepth, cellKind, cols, rows, cw, ch, kinds } = this;
+      cellFlag.fill(0);
+
+      for (let fIdx = 0; fIdx < flocks.length; fIdx++) {
+        const f = flocks[fIdx];
+        const kindIndex = Math.max(0, kinds.indexOf(f.species));
         const sp = BIRD_SPECIES[f.species] || BIRD_SPECIES.goose;
 
-        for (const b of f.birds) {
+        for (let bIdx = 0; bIdx < f.birds.length; bIdx++) {
+          const b = f.birds[bIdx];
           const bx = f.apexX + b.relX;
           const by = f.apexY + b.relY;
 
-          // Check if bird is within canvas viewport bounds (+ padding)
-          if (bx < -40 || bx > world.width + 40 || by < -40 || by > world.height + 40) continue;
+          const reachX = sp.wingSpan * 0.60 * (b.size || 1) + 14;
+          const reachY = sp.bodyLen * 0.75 * (b.size || 1) + 14;
 
-          // Wing stroke position: [-1 = wings fully down, +1 = wings fully up]
-          const wingFlap = Math.sin(b.wingPhase + b.wingPhaseOffset);
-          const isGliding = Math.abs(wingFlap) < 0.18;
+          const c0 = Math.max(0, Math.floor((bx - reachX) / cw));
+          const c1 = Math.min(cols - 1, Math.floor((bx + reachX) / cw));
+          const r0 = Math.max(0, Math.floor((by - reachY) / ch));
+          const r1 = Math.min(rows - 1, Math.floor((by + reachY) / ch));
+          if (c0 > c1 || r0 > r1) continue;
 
-          ctx.save();
-          ctx.translate(bx, by);
+          for (let r = r0; r <= r1; r++) {
+            for (let c = c0; c <= c1; c++) {
+              const x = c * cw;
+              const y = r * ch;
+              let hits = 0;
+              let centerHit = this.sampleBird(x + cw / 2, y + ch / 2, b, f);
+              if (centerHit) hits++;
+              for (let k = 0; k < SUBSAMPLES.length; k += 2) {
+                if (this.sampleBird(x + SUBSAMPLES[k] * cw, y + SUBSAMPLES[k + 1] * ch, b, f)) hits++;
+              }
+              if (hits === 0) continue;
 
-          // Flight direction: pointing upwards towards -Y with slight lateral drift
-          const flightAngle = Math.atan2(f.vy, f.vx) + Math.PI / 2;
-          ctx.rotate(flightAngle);
-          ctx.scale(b.size, b.size);
-
-          ctx.fillStyle = sp.color;
-
-          if (f.species === "crane") {
-            // Sandhill Crane: long outstretched neck forward, long legs trailing backward, broad wings
-            ctx.fillStyle = sp.color;
-            // Outstretched neck & head
-            ctx.fillText("|", 0, -11);
-            ctx.fillText("^", 0, -16);
-            // Red crown dot
-            ctx.fillStyle = sp.accentColor;
-            ctx.fillText("·", 0, -14);
-
-            // Body
-            ctx.fillStyle = sp.color;
-            ctx.fillText("#", 0, -4);
-            ctx.fillText("8", 0, 2);
-
-            // Trailing legs
-            ctx.fillStyle = sp.secondaryColor;
-            ctx.fillText("!", 0, 8);
-            ctx.fillText(":", 0, 14);
-
-            // Large plumed flapping wings
-            ctx.fillStyle = sp.color;
-            if (wingFlap > 0.25) {
-              // Wings swept upward
-              ctx.fillText("\\\\", -8, -6);
-              ctx.fillText("//", 8, -6);
-              ctx.fillText("\\", -14, -10);
-              ctx.fillText("/", 14, -10);
-            } else if (wingFlap < -0.25) {
-              // Wings pushed downward
-              ctx.fillText("//", -8, 2);
-              ctx.fillText("\\\\", 8, 2);
-              ctx.fillText("/", -14, 6);
-              ctx.fillText("\\", 14, 6);
-            } else {
-              // Gliding flat wings
-              ctx.fillText("==", -8, -2);
-              ctx.fillText("==", 8, -2);
-              ctx.fillText("-", -14, -2);
-              ctx.fillText("-", 14, -2);
-            }
-          } else if (f.species === "swift") {
-            // Alpine Swift: sleek aerodynamic scythe-crescent wings, ultra fast
-            ctx.fillStyle = sp.accentColor;
-            ctx.fillText("o", 0, -6); // White throat
-            ctx.fillStyle = sp.color;
-            ctx.fillText("v", 0, 0);  // Streamlined body
-
-            if (wingFlap > 0.2) {
-              ctx.fillText("(", -6, -4);
-              ctx.fillText(")", 6, -4);
-              ctx.fillText("'", -10, -7);
-              ctx.fillText("`", 10, -7);
-            } else if (wingFlap < -0.2) {
-              ctx.fillText(")", -6, 2);
-              ctx.fillText("(", 6, 2);
-              ctx.fillText("`", -10, 5);
-              ctx.fillText("'", 10, 5);
-            } else {
-              ctx.fillText("~", -6, -1);
-              ctx.fillText("~", 6, -1);
-              ctx.fillText("-", -11, -2);
-              ctx.fillText("-", 11, -2);
-            }
-          } else if (f.species === "ibis") {
-            // Glossy Ibis: slender decurved bill, bronze feathers
-            ctx.fillStyle = sp.color;
-            ctx.fillText(")", 0, -11); // Curved slender beak
-            ctx.fillText("o", 0, -6);
-            ctx.fillText("S", 0, 0);
-
-            // Wing flaps
-            if (wingFlap > 0.2) {
-              ctx.fillText("\\", -6, -4);
-              ctx.fillText("/", 6, -4);
-              ctx.fillText("^", -11, -7);
-              ctx.fillText("^", 11, -7);
-            } else if (wingFlap < -0.2) {
-              ctx.fillText("/", -6, 2);
-              ctx.fillText("\\", 6, 2);
-              ctx.fillText("v", -11, 5);
-              ctx.fillText("v", 11, 5);
-            } else {
-              ctx.fillText("-", -6, -1);
-              ctx.fillText("-", 6, -1);
-              ctx.fillText("~", -11, -1);
-              ctx.fillText("~", 11, -1);
-            }
-          } else {
-            // Canada Goose (classic V-formation leader)
-            // Long black neck & head
-            ctx.fillStyle = sp.color;
-            ctx.fillText("o", 0, -9);
-            // White cheek patch
-            ctx.fillStyle = sp.accentColor;
-            ctx.fillText("·", 0, -7);
-
-            // Body
-            ctx.fillStyle = sp.color;
-            ctx.fillText("0", 0, -2);
-            ctx.fillText("v", 0, 4);
-
-            // Powerful broad wings
-            if (wingFlap > 0.25) {
-              ctx.fillText("\\", -6, -4);
-              ctx.fillText("/", 6, -4);
-              ctx.fillText("\\", -12, -7);
-              ctx.fillText("/", 12, -7);
-            } else if (wingFlap < -0.25) {
-              ctx.fillText("/", -6, 2);
-              ctx.fillText("\\", 6, 2);
-              ctx.fillText("/", -12, 5);
-              ctx.fillText("\\", 12, 5);
-            } else {
-              ctx.fillText("=", -6, -1);
-              ctx.fillText("=", 6, -1);
-              ctx.fillText("-", -12, -1);
-              ctx.fillText("-", 12, -1);
+              const i = r * cols + c;
+              const key = (hash3(c, r, fIdx * 31 + bIdx) * 4294967295) >>> 0;
+              cellKey[i] = key;
+              cellDepth[i] = b.size || 1.0;
+              cellKind[i] = kindIndex;
+              cellFlag[i] = this.hitFlag;
+              cellShade[i] = this.hitShade;
             }
           }
-
-          ctx.restore();
         }
+      }
+    }
+
+    drawBirdCells(world, t) {
+      const { ctx, cols, rows, cw, ch, cellFlag, cellShade, cellKey, cellKind, kinds } = this;
+      const n = cols * rows;
+
+      for (let i = 0; i < n; i++) {
+        const flag = cellFlag[i];
+        if (!flag) continue;
+
+        const col = i % cols;
+        const row = (i / cols) | 0;
+        const x = col * cw;
+        const y = row * ch;
+        const key = cellKey[i];
+        const shade = cellShade[i];
+        const spKey = kinds[cellKind[i]] || "goose";
+        const sp = BIRD_SPECIES[spKey] || BIRD_SPECIES.goose;
+
+        let bgR, bgG, bgB;
+        let glyph;
+        let glyphColor = "#ffffff";
+
+        if (flag === FLAG_WHITE_PATCH) {
+          // Pure white cheek / throat patch
+          bgR = 248; bgG = 250; bgB = 252;
+          glyph = "*";
+          glyphColor = "#334155";
+        } else if (flag === FLAG_MARK) {
+          // Sandhill Crane crimson red crown cap
+          bgR = 220; bgG = 38; bgB = 38;
+          glyph = "@";
+          glyphColor = "#fef2f2";
+        } else if (flag === FLAG_EYE) {
+          // Eye
+          bgR = 15; bgG = 23; bgB = 42;
+          glyph = "o";
+          glyphColor = "#ffffff";
+        } else if (flag === FLAG_FIN) {
+          // Flight primaries / wingtips
+          const [wr, wg, wb] = sp.wingTint;
+          const lum = Math.round(180 * shade);
+          bgR = Math.round(lum * wr);
+          bgG = Math.round(lum * wg);
+          bgB = Math.round(lum * wb);
+          const FLIGHT_GLYPHS = ["\\", "/", "=", "-", "~"];
+          glyph = FLIGHT_GLYPHS[(key >>> 5) % FLIGHT_GLYPHS.length];
+          glyphColor = "#e2e8f0";
+        } else if (flag === FLAG_RIDGE) {
+          // Wing leading edge
+          const [br, bg, bb] = sp.tint;
+          const lum = Math.round(140 * shade);
+          bgR = Math.round(lum * br);
+          bgG = Math.round(lum * bg);
+          bgB = Math.round(lum * bb);
+          glyph = "@";
+          glyphColor = "#cbd5e1";
+        } else {
+          // Body plumage
+          const [br, bg, bb] = sp.tint;
+          const lum = Math.round(220 * shade);
+          bgR = Math.round(lum * br);
+          bgG = Math.round(lum * bg);
+          bgB = Math.round(lum * bb);
+          glyph = SKIN_RAMP[clamp(Math.floor(shade * 8.99), 0, SKIN_RAMP.length - 1)];
+          glyphColor = lum < 120 ? "#f8fafc" : "#1e293b";
+        }
+
+        ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
+        ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
+
+        ctx.fillStyle = glyphColor;
+        ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
       }
     }
   }
@@ -4358,6 +4467,38 @@
 
       if (first || this.foamSpecks.length === 0) {
         this.seedFoamSpecks();
+      }
+
+      if (first && this.seagulls.length === 0) {
+        this.seagulls.push({
+          x: width * 0.28,
+          y: height * 0.22,
+          vx: 58,
+          vy: -4,
+          wingPhase: 0.8,
+          wingSpeed: 4.6,
+          size: 1.0,
+        });
+      }
+
+      if (first && this.surfacers.length === 0) {
+        const sx = width * 0.24;
+        const sy = height * 0.72;
+        const s = {
+          type: "whale",
+          x: sx,
+          y: sy - 18,
+          originX: sx,
+          originY: sy,
+          dir: 1,
+          t: 2.2,
+          duration: 4.8,
+          rippled: true,
+          ripple2: false,
+          peakJump: 32,
+        };
+        this.surfacers.push(s);
+        this.triggerCircularSoundWave(sx, sy, "whale");
       }
     }
 
@@ -4677,9 +4818,36 @@
     }
 
     drawFauna(world, t) {
-      const { ctx } = this;
+      const { ctx, cw, ch } = this;
 
-      // 1. Draw Seagulls flying in the sky above waves
+      // ── 1. CIRCULAR SOUND / WATER RIPPLE WAVES (Expanding Concentric Acoustic Rings) ──
+      for (const rip of world.ripples) {
+        if (rip.radius < 4 || rip.amp <= 0.04) continue;
+        const alpha = clamp(rip.amp * 0.45, 0.05, 0.50).toFixed(3);
+        ctx.fillStyle = `rgba(56, 120, 195, ${alpha})`;
+        const R = rip.radius;
+        const segCount = clamp(Math.round((R * TAU) / (cw * 2.5)), 8, 36);
+
+        for (let s = 0; s < segCount; s++) {
+          const theta = (s / segCount) * TAU;
+          const px = rip.x + Math.cos(theta) * R;
+          const py = rip.y + Math.sin(theta) * R;
+          if (px < -20 || px > world.width + 20 || py < -20 || py > world.height + 20) continue;
+          // Acoustic circular sound wave glyphs
+          const glyph = Math.abs(Math.sin(theta)) > 0.6 ? "~" : (Math.cos(theta) >= 0 ? ")" : "(");
+          ctx.fillText(glyph, px, py);
+        }
+      }
+
+      // Helper for drawing discrete stackedlol ASCII cells
+      const renderCell = (gx, gy, bgFill, glyph, glyphColor) => {
+        ctx.fillStyle = bgFill;
+        ctx.fillRect(gx + 1, gy + 1, cw - 1, ch - 1);
+        ctx.fillStyle = glyphColor;
+        ctx.fillText(glyph, gx + cw / 2, gy + ch / 2 + 1);
+      };
+
+      // ── 2. SEAGULLS (Multi-Cell Aerodynamic Bodies with Flapping Wings & Authentic Plumage) ──
       for (const g of world.seagulls) {
         const wing = Math.sin(g.wingPhase);
         const dir = g.vx >= 0 ? 1 : -1;
@@ -4687,28 +4855,44 @@
         ctx.translate(g.x, g.y);
         if (dir < 0) ctx.scale(-1, 1);
 
-        // Seagull body and flapping wings ASCII
-        ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+        const bodyBg = "rgba(241, 245, 249, 0.95)";
+        const wingBg = "rgba(226, 232, 240, 0.92)";
+        const tipBg  = "rgba(15, 23, 42, 0.90)";
+        const beakBg = "rgba(234, 179, 8, 0.95)";
+
+        // Head and beak
+        renderCell(cw * 0.5, 0, bodyBg, "o", "#0f172a");
+        renderCell(cw * 1.5, 0, beakBg, ">", "#78350f");
+
+        // Center fuselage
+        renderCell(-cw * 0.5, 0, bodyBg, "#", "#334155");
+        renderCell(-cw * 1.5, 0, bodyBg, "~", "#64748b"); // Tail
+
+        // Flapping wings
         if (wing > 0.2) {
-          // Wings up: \ _ /
-          ctx.fillText("\\", -6, -3);
-          ctx.fillText("o", 0, 0);
-          ctx.fillText("/", 6, -3);
+          // Wings swept upward
+          renderCell(-cw * 0.5, -ch, wingBg, "\\", "#334155");
+          renderCell(cw * 0.5, -ch, wingBg, "/", "#334155");
+          renderCell(-cw * 1.5, -ch * 1.7, tipBg, "\\", "#f8fafc");
+          renderCell(cw * 1.5, -ch * 1.7, tipBg, "/", "#f8fafc");
         } else if (wing < -0.2) {
-          // Wings down: / ¯ \
-          ctx.fillText("/", -6, 3);
-          ctx.fillText("o", 0, 0);
-          ctx.fillText("\\", 6, 3);
+          // Wings swept downward
+          renderCell(-cw * 0.5, ch, wingBg, "/", "#334155");
+          renderCell(cw * 0.5, ch, wingBg, "\\", "#334155");
+          renderCell(-cw * 1.5, ch * 1.7, tipBg, "/", "#f8fafc");
+          renderCell(cw * 1.5, ch * 1.7, tipBg, "\\", "#f8fafc");
         } else {
-          // Wings flat / gliding: - o -
-          ctx.fillText("-", -6, 0);
-          ctx.fillText("o", 0, 0);
-          ctx.fillText("-", 6, 0);
+          // Gliding horizontal wings
+          renderCell(-cw * 0.5, -2, wingBg, "=", "#334155");
+          renderCell(cw * 0.5, -2, wingBg, "=", "#334155");
+          renderCell(-cw * 1.5, -2, tipBg, "-", "#f8fafc");
+          renderCell(cw * 1.5, -2, tipBg, "-", "#f8fafc");
         }
+
         ctx.restore();
       }
 
-      // 2. Draw Surfacing creatures (Fish, Flying Fish, Dolphin, Whale)
+      // ── 3. SURFACING MARINE FAUNA (Whale, Dolphin, Flying Fish, Reef Fish) ──
       for (const s of world.surfacers) {
         const prog = s.t / s.duration;
         const alpha = Math.sin(prog * Math.PI); // Fades in on breach, fades out on re-entry
@@ -4718,36 +4902,98 @@
         ctx.translate(s.x, s.y);
         if (s.dir < 0) ctx.scale(-1, 1);
 
-        const fillAlpha = clamp(alpha * 0.85, 0.2, 0.95).toFixed(3);
+        const fillAlpha = clamp(alpha * 0.92, 0.25, 0.95).toFixed(3);
 
         if (s.type === "whale") {
-          // Magnificent whale breaching: huge curved back and spout
-          ctx.fillStyle = `rgba(30, 58, 102, ${fillAlpha})`;
-          ctx.fillText(".----.__", -12, -4);
-          ctx.fillText("/        \\", 0, 0);
-          ctx.fillText("`========'", 0, 6);
-          // Blowhole water spout when near apex
-          if (prog > 0.35 && prog < 0.65) {
+          // ── MAGNIFICENT BREACHING WHALE (7x3 Discrete ASCII Grid Titan) ──
+          const whaleNavy = `rgba(24, 44, 76, ${fillAlpha})`;
+          const whaleBelly = `rgba(45, 78, 128, ${fillAlpha})`;
+
+          // Spout fountain spray specks rising into the sky at apex
+          if (prog > 0.25 && prog < 0.70) {
             ctx.fillStyle = `rgba(186, 230, 253, ${fillAlpha})`;
-            ctx.fillText(":", -2, -10);
-            ctx.fillText("*", -2, -15);
+            ctx.fillText("^", cw * 0.5, -ch * 1.3);
+            ctx.fillText("*", cw * 0.5, -ch * 2.2);
+            ctx.fillText("°", cw * 1.4, -ch * 2.5);
+            ctx.fillText("·", -cw * 0.4, -ch * 2.4);
           }
+
+          // Row -1: Dorsal crest & fin
+          renderCell(0, -ch, whaleNavy, "~", "#bae6fd"); // Blowhole
+          renderCell(-cw, -ch, whaleNavy, "_", "#cbd5e1");
+          renderCell(cw, -ch, whaleNavy, "_", "#cbd5e1");
+          renderCell(-cw * 2, -ch, whaleNavy, "^", "#7dd3fc"); // Small dorsal fin
+
+          // Row 0: Broad main dorsal fuselage
+          renderCell(-cw * 3, 0, whaleNavy, "~", "#bae6fd"); // Fluke tail
+          renderCell(-cw * 2, 0, whaleNavy, "/", "#cbd5e1");
+          renderCell(-cw, 0, whaleNavy, "#", "#f8fafc");
+          renderCell(0, 0, whaleNavy, "@", "#ffffff");
+          renderCell(cw, 0, whaleNavy, "8", "#ffffff");
+          renderCell(cw * 2, 0, whaleNavy, "#", "#cbd5e1");
+          renderCell(cw * 3, 0, whaleNavy, ">", "#bae6fd"); // Head rostrum
+
+          // Row 1: Ventral throat grooves / pleats
+          renderCell(-cw, ch, whaleBelly, "=", "#e0f2fe");
+          renderCell(0, ch, whaleBelly, "=", "#e0f2fe");
+          renderCell(cw, ch, whaleBelly, "=", "#e0f2fe");
+          renderCell(cw * 2, ch, whaleBelly, "=", "#e0f2fe");
+
         } else if (s.type === "dolphin") {
-          // Playful arched dolphin leap
-          ctx.fillStyle = `rgba(45, 85, 155, ${fillAlpha})`;
-          ctx.fillText(".-'-.", -6, -4);
-          ctx.fillText("'-..-'\\", 0, 2);
+          // ── ARCHED LEAPING DOLPHIN (5x3 Cellular ASCII Body) ──
+          const dolphinBlue = `rgba(37, 99, 235, ${fillAlpha})`;
+          const dolphinBelly = `rgba(59, 130, 246, ${fillAlpha})`;
+
+          // Dorsal fin at row -1
+          renderCell(0, -ch, dolphinBlue, "^", "#dbeafe");
+
+          // Main arched torso at row 0
+          renderCell(-cw * 2, 0, dolphinBlue, "~", "#bfdbfe"); // Fluke
+          renderCell(-cw, 0, dolphinBlue, "(", "#dbeafe");
+          renderCell(0, 0, dolphinBlue, "#", "#ffffff");
+          renderCell(cw, 0, dolphinBlue, "8", "#ffffff"); // Head with eye
+          renderCell(cw * 2, 0, dolphinBlue, ">", "#bfdbfe"); // Beak
+
+          // Pectoral flipper at row 1
+          renderCell(0, ch, dolphinBelly, "v", "#e0e7ff");
+          renderCell(cw, ch, dolphinBelly, "_", "#e0e7ff");
+
         } else if (s.type === "flying_fish") {
-          // Gliding flying fish with extended pectoral wings
-          ctx.fillStyle = `rgba(56, 120, 195, ${fillAlpha})`;
-          ctx.fillText("^", -4, -4);
-          ctx.fillText("<><", 0, 0);
-          ctx.fillText("v", -4, 4);
+          // ── GLIDING FLYING FISH (Extended Pectoral Wing Glider) ──
+          const fishAqua = `rgba(14, 165, 233, ${fillAlpha})`;
+
+          // Upper gliding wing
+          renderCell(0, -ch, fishAqua, "\\", "#f0f9ff");
+          renderCell(cw, -ch, fishAqua, "=", "#f0f9ff");
+          renderCell(cw * 2, -ch, fishAqua, "~", "#f0f9ff");
+
+          // Fuselage body
+          renderCell(-cw * 2, 0, fishAqua, "<", "#bae6fd"); // Tail
+          renderCell(-cw, 0, fishAqua, "#", "#ffffff");
+          renderCell(0, 0, fishAqua, "8", "#ffffff");
+          renderCell(cw, 0, fishAqua, "S", "#ffffff");
+          renderCell(cw * 2, 0, fishAqua, ">", "#bae6fd"); // Snout
+
+          // Lower gliding wing
+          renderCell(0, ch, fishAqua, "/", "#f0f9ff");
+          renderCell(cw, ch, fishAqua, "=", "#f0f9ff");
+          renderCell(cw * 2, ch, fishAqua, "~", "#f0f9ff");
+
         } else {
-          // Quick jumping fish
-          ctx.fillStyle = `rgba(45, 95, 165, ${fillAlpha})`;
-          ctx.fillText("><>", 0, 0);
+          // ── SURFACING REEF FISH (4x2 Cellular ASCII Swimmer) ──
+          const fishCobalt = `rgba(30, 64, 175, ${fillAlpha})`;
+
+          // Dorsal fin at row -1
+          renderCell(0, -ch, fishCobalt, "^", "#dbeafe");
+          renderCell(cw, -ch, fishCobalt, "_", "#dbeafe");
+
+          // Body at row 0
+          renderCell(-cw, 0, fishCobalt, "<", "#bfdbfe"); // Caudal fin
+          renderCell(0, 0, fishCobalt, "#", "#ffffff");
+          renderCell(cw, 0, fishCobalt, "8", "#ffffff"); // Scaly torso with eye
+          renderCell(cw * 2, 0, fishCobalt, ">", "#bfdbfe"); // Snout
         }
+
         ctx.restore();
       }
     }

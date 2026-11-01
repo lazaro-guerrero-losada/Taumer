@@ -1372,13 +1372,13 @@ class SettingsDialog(Gtk.Window):
         sec_bg.append(lbl_sec_bg)
 
         self.bg_themes = [
-            ("sharks", "◈ Sharks", "Classic ocean sharks (Hammerhead, Thresher, Mako) swimming with schooling fish."),
-            ("birds", "🪶 Migrating Birds", "Flocks of birds (Canada Geese, Cranes, Ibises, Swifts) flying in V-formation across drifting clouds."),
-            ("turtles", "🐢 Sea Turtles", "Graceful sea turtles (Loggerhead, Green, Olive Ridley, Hawksbill) cruising the reef."),
-            ("mantas", "◇ Manta Rays", "Graceful oceanic manta & spotted eagle rays gliding with undulating wings."),
-            ("jellyfish", "◎ Jellyfish", "Rhythmic deep-sea pulsing jellyfish bells with flowing tentacles & plankton."),
-            ("bacteria", "⊞ Game of Life", "John Horton Conway's 1970 cellular automaton — fluid, asynchronous cell growth & click-to-spawn colonies."),
-            ("waves", "≈ Sea Waves", "Permanent undulating ocean waves rolling gently from top to bottom with organic lateral swell distortion."),
+            ("sharks", "Sharks", "Classic ocean sharks (Hammerhead, Thresher, Mako) swimming with schooling fish."),
+            ("birds", "Migrating Birds", "Flocks of birds (Canada Geese, Cranes, Ibises, Swifts) flying in V-formation across drifting clouds."),
+            ("turtles", "Sea Turtles", "Graceful sea turtles (Loggerhead, Green, Olive Ridley, Hawksbill) cruising the reef."),
+            ("mantas", "Manta Rays", "Graceful oceanic manta & spotted eagle rays gliding with undulating wings."),
+            ("jellyfish", "Jellyfish", "Rhythmic deep-sea pulsing jellyfish bells with flowing tentacles & plankton."),
+            ("bacteria", "Game of Life", "John Horton Conway's 1970 cellular automaton — fluid, asynchronous cell growth & click-to-spawn colonies."),
+            ("waves", "Sea Waves", "Permanent undulating ocean waves rolling gently from top to bottom with organic lateral swell distortion."),
         ]
         self.selected_bg_theme = settings.get("background_theme", "sharks")
         if self.selected_bg_theme not in [t[0] for t in self.bg_themes]:
