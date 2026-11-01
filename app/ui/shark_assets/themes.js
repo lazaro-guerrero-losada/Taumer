@@ -3846,6 +3846,15 @@
 
       // Drifting foam specks that float along with the swell
       this.foamSpecks = [];
+
+      // ── OCCASIONAL RANDOM OCEAN FAUNA ──
+      // Seagulls flying across the sky above waves
+      this.seagulls = [];
+      this.seagullTimer = rand(4, 9); // Initial appearance timer
+
+      // Surfacing sea creatures: fish, flying fish, dolphins, whales breaching up to the surface
+      this.surfacers = [];
+      this.surfacerTimer = rand(3, 7);
     }
 
     resize(width, height, cw = 11, ch = 15) {
@@ -3924,6 +3933,107 @@
         if (f.x < -20) f.x = W + 20;
         else if (f.x > W + 20) f.x = -20;
       }
+
+      // ── SPAWN OCCASIONAL SEAGULLS ──
+      this.seagullTimer -= dt;
+      if (this.seagullTimer <= 0) {
+        this.seagullTimer = rand(14, 28);
+        const fromLeft = Math.random() < 0.5;
+        this.seagulls.push({
+          x: fromLeft ? -40 : W + 40,
+          y: rand(H * 0.12, H * 0.72),
+          vx: (fromLeft ? 1 : -1) * rand(48, 75),
+          vy: rand(-12, 12),
+          wingPhase: rand(0, TAU),
+          wingSpeed: rand(3.8, 5.5),
+          size: rand(0.9, 1.3),
+        });
+      }
+
+      // Update seagulls
+      for (let i = this.seagulls.length - 1; i >= 0; i--) {
+        const g = this.seagulls[i];
+        g.x += g.vx * dt;
+        g.y += (g.vy + Math.sin(this.time * 1.5 + g.wingPhase) * 14) * dt;
+        g.wingPhase += dt * g.wingSpeed;
+        if (g.x < -80 || g.x > W + 80 || g.y < -80 || g.y > H + 80) {
+          this.seagulls.splice(i, 1);
+        }
+      }
+
+      // ── SPAWN OCCASIONAL SURFACING CREATURES (Fish, Flying Fish, Dolphin, Whale) ──
+      this.surfacerTimer -= dt;
+      if (this.surfacerTimer <= 0) {
+        this.surfacerTimer = rand(9, 19);
+        const types = ["flying_fish", "fish", "dolphin", "whale"];
+        // Weighted roll: fish 40%, flying fish 30%, dolphin 20%, whale 10%
+        const roll = Math.random();
+        const type = roll < 0.40 ? "fish" : roll < 0.70 ? "flying_fish" : roll < 0.90 ? "dolphin" : "whale";
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        const startX = rand(W * 0.15, W * 0.85);
+        const startY = rand(H * 0.25, H * 0.80);
+
+        const s = {
+          type,
+          x: startX,
+          y: startY,
+          originX: startX,
+          originY: startY,
+          dir,
+          t: 0,
+          duration: type === "whale" ? 4.8 : type === "dolphin" ? 3.4 : type === "flying_fish" ? 2.8 : 2.0,
+          rippled: false,
+          ripple2: false,
+          peakJump: type === "whale" ? 32 : type === "dolphin" ? 54 : type === "flying_fish" ? 42 : 28,
+        };
+        this.surfacers.push(s);
+      }
+
+      // Update surfacing creatures
+      for (let i = this.surfacers.length - 1; i >= 0; i--) {
+        const s = this.surfacers[i];
+        s.t += dt;
+        const progress = s.t / s.duration; // 0 to 1 arc
+
+        // Arc path: moves horizontally and arcs upward then splashes back down
+        const forwardDist = s.type === "whale" ? 120 : s.type === "dolphin" ? 160 : s.type === "flying_fish" ? 180 : 90;
+        s.x = s.originX + s.dir * forwardDist * progress;
+        // Parabolic jump arc: y offsets upward (negative y)
+        const arcY = Math.sin(progress * Math.PI) * s.peakJump;
+        s.y = s.originY - arcY;
+
+        // Trigger sound-wave circular ripple at entry (breach) and re-entry (splash)
+        if (progress >= 0.12 && !s.rippled) {
+          s.rippled = true;
+          this.triggerCircularSoundWave(s.x, s.y, s.type);
+        }
+        if (progress >= 0.84 && !s.ripple2) {
+          s.ripple2 = true;
+          this.triggerCircularSoundWave(s.x, s.y, s.type);
+        }
+
+        if (progress >= 1.0) {
+          this.surfacers.splice(i, 1);
+        }
+      }
+    }
+
+    triggerCircularSoundWave(x, y, creatureType) {
+      const maxR = creatureType === "whale" ? 340 : creatureType === "dolphin" ? 270 : creatureType === "flying_fish" ? 190 : 150;
+      const speed = creatureType === "whale" ? 65 : creatureType === "dolphin" ? 95 : 110;
+      const amp = creatureType === "whale" ? 1.4 : creatureType === "dolphin" ? 1.1 : 0.8;
+
+      if (this.ripples.length >= 10) this.ripples.shift();
+      this.ripples.push({
+        x,
+        y,
+        radius: 0,
+        maxRadius: maxR,
+        speed,
+        amp,
+        age: 0,
+      });
+      this.events.push({ kind: "pulse", x, y });
     }
 
     // Compute the permanent sea wave elevation at (x, y) with organic lateral X distortion
@@ -4010,6 +4120,7 @@
 
       this.drawSeaWaves(world, t);
       this.drawFoamSpecks(world, t);
+      this.drawFauna(world, t);
     }
 
     drawSeaWaves(world, t) {
@@ -4075,6 +4186,82 @@
         ctx.fillStyle = elev > 0.65 ? `rgba(240, 249, 255, ${alpha.toFixed(3)})` : `rgba(45, 95, 165, ${alpha.toFixed(3)})`;
         const glyph = elev > 0.65 ? "*" : "·";
         ctx.fillText(glyph, f.x, f.y);
+      }
+    }
+
+    drawFauna(world, t) {
+      const { ctx } = this;
+
+      // 1. Draw Seagulls flying in the sky above waves
+      for (const g of world.seagulls) {
+        const wing = Math.sin(g.wingPhase);
+        const dir = g.vx >= 0 ? 1 : -1;
+        ctx.save();
+        ctx.translate(g.x, g.y);
+        if (dir < 0) ctx.scale(-1, 1);
+
+        // Seagull body and flapping wings ASCII
+        ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+        if (wing > 0.2) {
+          // Wings up: \ _ /
+          ctx.fillText("\\", -6, -3);
+          ctx.fillText("o", 0, 0);
+          ctx.fillText("/", 6, -3);
+        } else if (wing < -0.2) {
+          // Wings down: / ¯ \
+          ctx.fillText("/", -6, 3);
+          ctx.fillText("o", 0, 0);
+          ctx.fillText("\\", 6, 3);
+        } else {
+          // Wings flat / gliding: - o -
+          ctx.fillText("-", -6, 0);
+          ctx.fillText("o", 0, 0);
+          ctx.fillText("-", 6, 0);
+        }
+        ctx.restore();
+      }
+
+      // 2. Draw Surfacing creatures (Fish, Flying Fish, Dolphin, Whale)
+      for (const s of world.surfacers) {
+        const prog = s.t / s.duration;
+        const alpha = Math.sin(prog * Math.PI); // Fades in on breach, fades out on re-entry
+        if (alpha <= 0.05) continue;
+
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        if (s.dir < 0) ctx.scale(-1, 1);
+
+        const fillAlpha = clamp(alpha * 0.85, 0.2, 0.95).toFixed(3);
+
+        if (s.type === "whale") {
+          // Magnificent whale breaching: huge curved back and spout
+          ctx.fillStyle = `rgba(30, 58, 102, ${fillAlpha})`;
+          ctx.fillText(".----.__", -12, -4);
+          ctx.fillText("/        \\", 0, 0);
+          ctx.fillText("`========'", 0, 6);
+          // Blowhole water spout when near apex
+          if (prog > 0.35 && prog < 0.65) {
+            ctx.fillStyle = `rgba(186, 230, 253, ${fillAlpha})`;
+            ctx.fillText(":", -2, -10);
+            ctx.fillText("*", -2, -15);
+          }
+        } else if (s.type === "dolphin") {
+          // Playful arched dolphin leap
+          ctx.fillStyle = `rgba(45, 85, 155, ${fillAlpha})`;
+          ctx.fillText(".-'-.", -6, -4);
+          ctx.fillText("'-..-'\\", 0, 2);
+        } else if (s.type === "flying_fish") {
+          // Gliding flying fish with extended pectoral wings
+          ctx.fillStyle = `rgba(56, 120, 195, ${fillAlpha})`;
+          ctx.fillText("^", -4, -4);
+          ctx.fillText("<><", 0, 0);
+          ctx.fillText("v", -4, 4);
+        } else {
+          // Quick jumping fish
+          ctx.fillStyle = `rgba(45, 95, 165, ${fillAlpha})`;
+          ctx.fillText("><>", 0, 0);
+        }
+        ctx.restore();
       }
     }
   }
