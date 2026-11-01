@@ -3081,6 +3081,731 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 5. SEA TURTLES ENGINE ("turtles")
+  //    Loggerhead, Green Sea Turtle, Olive Ridley, and Hawksbill Sea Turtle.
+  //    Graceful gliding motion with rowing pectoral flippers, rear flippers,
+  //    oval carapace with scute patterns, and distinct species palettes.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const TURTLE_NODES = 16;
+  const TURTLE_SHAPES = {
+    loggerhead: {
+      carapaceRatio: 0.62, // Broad, heart-shaped heavy carapace
+      shellWidth: 0.44,
+      headScale: 0.17,     // Big blocky head (Caretta caretta)
+      beakSharp: false,
+      flipperSpan: 0.46,
+      palette: "reddish_brown",
+      tint: [0.78, 0.42, 0.22], // Reddish-brown / rusty terracotta carapace with yellow-brown plastron
+      scuteType: "loggerhead",
+    },
+    greenturtle: {
+      carapaceRatio: 0.65, // Smooth teardrop oval carapace (Chelonia mydas)
+      shellWidth: 0.42,
+      headScale: 0.13,     // Rounder, smaller blunt head
+      beakSharp: false,
+      flipperSpan: 0.48,
+      palette: "olive_green",
+      tint: [0.38, 0.58, 0.32], // Rich olive-green with radiating mottled gold/dark green rays
+      scuteType: "green",
+    },
+    olive_ridley: {
+      carapaceRatio: 0.58, // Small, nearly circular heart-shaped dome (Lepidochelys olivacea)
+      shellWidth: 0.46,
+      headScale: 0.14,
+      beakSharp: false,
+      flipperSpan: 0.42,
+      palette: "slate_olive",
+      tint: [0.46, 0.52, 0.42], // Uniform muted grayish-green / olive-slate shell
+      scuteType: "ridley",
+    },
+    hawksbill: {
+      carapaceRatio: 0.64, // Amber tortoiseshell with serrated posterior margins (Eretmochelys imbricata)
+      shellWidth: 0.40,
+      headScale: 0.14,
+      beakSharp: true,      // Narrow head with hawk-like pointed beak
+      serratedMargin: true, // Jagged scutes at the rear
+      flipperSpan: 0.50,
+      palette: "tortoiseshell",
+      tint: [0.82, 0.54, 0.18], // Rich amber, gold, brown tortoiseshell pattern
+      scuteType: "hawksbill",
+    },
+  };
+  const TURTLE_KINDS = Object.keys(TURTLE_SHAPES);
+  const TURTLE_TINTS = {};
+  for (const k of TURTLE_KINDS) TURTLE_TINTS[k] = TURTLE_SHAPES[k].tint;
+
+  const DEFAULT_TURTLES = [
+    { kind: "loggerhead", size: 0.94 },
+    { kind: "greenturtle", size: 0.90 },
+    { kind: "hawksbill", size: 0.84 },
+    { kind: "olive_ridley", size: 0.78 },
+  ];
+
+  class TurtleWorld {
+    constructor(specs = DEFAULT_TURTLES) {
+      this.specs = specs;
+      this.width = 0;
+      this.height = 0;
+      this.time = 0;
+      this.turtles = [];
+      this.fish = [];
+      this.events = [];
+      this.pointer = { x: 0, y: 0, active: false };
+      this.tmp = { x: 0, y: 0 };
+    }
+
+    resize(width, height) {
+      const first = this.width === 0;
+      this.width = width;
+      this.height = height;
+      if (first || this.turtles.length === 0) {
+        this.seed();
+        return;
+      }
+      for (const f of this.fish) {
+        f.x = clamp(f.x, 0, width);
+        f.y = clamp(f.y, 0, height);
+      }
+    }
+
+    seed() {
+      const { width: W, height: H } = this;
+      const minSide = Math.min(W, H) || 600;
+      const baseLen = clamp(minSide * 0.36, 175, 310);
+      const count = this.specs.length;
+
+      this.turtles = [];
+      for (let i = 0; i < count; i++) {
+        const spec = this.specs[i];
+        const L = baseLen * (spec.size || 1.0);
+        const fAng = (i / count) * TAU + rand(-0.4, 0.4);
+        const rad = Math.min(W, H) * rand(0.18, 0.38);
+        const hx = W / 2 + Math.cos(fAng) * rad;
+        const hy = H / 2 + Math.sin(fAng) * rad;
+        const heading = fAng + Math.PI / 2 + rand(-0.5, 0.5);
+
+        const nodes = new Float32Array(TURTLE_NODES * 2);
+        const seg = L / (TURTLE_NODES - 1);
+        for (let k = 0; k < TURTLE_NODES; k++) {
+          nodes[k * 2] = hx - Math.cos(heading) * seg * k;
+          nodes[k * 2 + 1] = hy - Math.sin(heading) * seg * k;
+        }
+
+        this.turtles.push({
+          id: i,
+          kind: spec.kind,
+          length: L,
+          nodes,
+          heading,
+          speed: rand(20, 26),
+          turn: 0,
+          depth: rand(0.55, 0.95),
+          phase: rand(0, TAU),
+          strokeCycle: rand(0, TAU),
+          target: { x: W / 2, y: H / 2 },
+          targetTimer: rand(1.5, 4.0),
+        });
+      }
+
+      // Small companion reef fish
+      this.fish = [];
+      const fishCount = clamp(Math.round((W * H) / 36000), 22, 55);
+      for (let i = 0; i < fishCount; i++) {
+        this.fish.push({
+          x: rand(20, W - 20),
+          y: rand(20, H - 20),
+          vx: rand(-22, 22),
+          vy: rand(-22, 22),
+          size: rand(0.75, 1.3),
+          depth: rand(0.35, 0.85),
+          alarm: 0,
+          turn: 0,
+          escortId: i % this.turtles.length,
+          escortSide: Math.random() < 0.5 ? -1 : 1,
+          escortDist: rand(0.35, 0.85),
+        });
+      }
+    }
+
+    splash(x, y) {
+      this.events.push({ kind: "pulse", x, y });
+      for (const t of this.turtles) {
+        const hx = t.nodes[0];
+        const hy = t.nodes[1];
+        const d = Math.hypot(hx - x, hy - y);
+        if (d < t.length * 1.5 && d > 1e-3) {
+          const flee = Math.atan2(hy - y, hx - x);
+          t.heading += clamp(angleDiff(t.heading, flee), -1.1, 1.1);
+          t.speed = Math.min(52, t.speed + 16);
+        }
+      }
+    }
+
+    step(dt) {
+      this.time += dt;
+      this.stepTurtles(dt);
+      this.stepFish(dt);
+    }
+
+    stepTurtles(dt) {
+      const { turtles, width: W, height: H, time, pointer, tmp: cur } = this;
+      const cxW = W * 0.5;
+      const cyW = H * 0.5;
+
+      for (let i = 0; i < turtles.length; i++) {
+        const t = turtles[i];
+        const nodes = t.nodes;
+        const L = t.length;
+        const hx = nodes[0];
+        const hy = nodes[1];
+
+        t.targetTimer -= dt;
+        if (t.targetTimer <= 0) {
+          t.targetTimer = rand(5.0, 9.5);
+          const ang = rand(0, TAU);
+          const rad = Math.min(W, H) * rand(0.15, 0.42);
+          t.target.x = clamp(cxW + Math.cos(ang) * rad, 90, W - 90);
+          t.target.y = clamp(cyW + Math.sin(ang) * rad, 90, H - 90);
+        }
+
+        flowCurrent(hx, hy, time, cur);
+        let dx = Math.cos(t.heading) * 32 + cur.x * 0.45;
+        let dy = Math.sin(t.heading) * 32 + cur.y * 0.45;
+
+        const toTargetX = t.target.x - hx;
+        const toTargetY = t.target.y - hy;
+        const dTarget = Math.hypot(toTargetX, toTargetY) || 1;
+        dx += (toTargetX / dTarget) * 22;
+        dy += (toTargetY / dTarget) * 22;
+
+        if (pointer.active) {
+          const dpx = hx - pointer.x;
+          const dpy = hy - pointer.y;
+          const dp = Math.hypot(dpx, dpy);
+          if (dp < L * 1.3 && dp > 1e-3) {
+            const w = (1 - dp / (L * 1.3)) * 45;
+            dx += (dpx / dp) * w;
+            dy += (dpy / dp) * w;
+          }
+        }
+
+        // Mutual collision radar between turtles
+        const fx0 = Math.cos(t.heading);
+        const fy0 = Math.sin(t.heading);
+        const nx0 = -fy0;
+        const ny0 = fx0;
+        let latSlide = 0;
+        let speedMod = 1.0;
+
+        for (let j = 0; j < turtles.length; j++) {
+          if (i === j) continue;
+          const other = turtles[j];
+          const toX = other.nodes[0] - hx;
+          const toY = other.nodes[1] - hy;
+          const curDist = Math.hypot(toX, toY);
+          const radarRange = (L + other.length) * 0.65;
+          if (curDist < radarRange && curDist > 1e-3) {
+            const ahead = (toX / curDist) * fx0 + (toY / curDist) * fy0;
+            if (ahead > -0.2) {
+              const prox = 1 - curDist / radarRange;
+              const latOffset = -(toX * nx0 + toY * ny0);
+              const passSide = latOffset >= 0 ? 1 : -1;
+              dx += nx0 * passSide * prox * 30;
+              dy += ny0 * passSide * prox * 30;
+              speedMod *= t.id < other.id ? 1.08 : 0.92;
+            }
+          }
+          const coreRange = (L + other.length) * 0.28;
+          if (curDist < coreRange && curDist > 1e-3) {
+            const push = (1 - curDist / coreRange) * 14;
+            const latProj = (-toX / curDist) * nx0 + (-toY / curDist) * ny0;
+            latSlide += (latProj >= 0 ? 1 : -1) * push;
+          }
+        }
+
+        // Screen boundary soft steering
+        const pad = 85;
+        const over = Math.max(-hx + pad, hx - (W - pad), -hy + pad, hy - (H - pad));
+        if (over > 0) {
+          const w = clamp(over / (pad * 0.8), 0, 1) * 35;
+          dx += ((cxW - hx) / Math.hypot(cxW - hx, cyW - hy)) * w;
+          dy += ((cyW - hy) / Math.hypot(cxW - hx, cyW - hy)) * w;
+        }
+
+        const desired = Math.atan2(dy, dx);
+        const maxTurn = 0.52 * dt;
+        const turned = clamp(angleDiff(t.heading, desired), -maxTurn, maxTurn);
+        t.heading += turned;
+        t.turn += (turned / dt - t.turn) * Math.min(1, dt * 2.5);
+
+        // Slow, rhythmic, graceful flipper power stroke
+        t.strokeCycle += dt * 1.35;
+        const strokePower = Math.pow(Math.max(0, Math.sin(t.strokeCycle)), 2.0);
+        const cruise = (21 + L * 0.024 + strokePower * 8) * clamp(speedMod, 0.85, 1.15);
+        t.speed += (cruise - t.speed) * Math.min(1, dt * 1.5);
+
+        const fx = Math.cos(t.heading);
+        const fy = Math.sin(t.heading);
+        nodes[0] += (fx * t.speed - fy * latSlide) * dt;
+        nodes[1] += (fy * t.speed + fx * latSlide) * dt;
+
+        // Spine trailing curve
+        const seg = L / (TURTLE_NODES - 1);
+        let prevAngle = t.heading + Math.PI;
+        for (let k = 1; k < TURTLE_NODES; k++) {
+          const px = nodes[(k - 1) * 2];
+          const py = nodes[(k - 1) * 2 + 1];
+          // Carapace (nodes 3..12) is rigid! Bends very slightly
+          const maxBend = k >= 3 && k <= 12 ? 0.038 : 0.16;
+          let angle = Math.atan2(nodes[k * 2 + 1] - py, nodes[k * 2] - px);
+          angle = prevAngle + clamp(angleDiff(prevAngle, angle), -maxBend, maxBend);
+          nodes[k * 2] = px + Math.cos(angle) * seg;
+          nodes[k * 2 + 1] = py + Math.sin(angle) * seg;
+          prevAngle = angle;
+        }
+      }
+    }
+
+    stepFish(dt) {
+      const { fish, turtles, pointer, width: W, height: H, time, tmp: cur } = this;
+      const calm = Math.exp(-dt * 0.8);
+      for (const f of fish) {
+        f.alarm *= calm;
+        flowCurrent(f.x, f.y, time, cur);
+        let ax = cur.x * 0.5 + (Math.random() - 0.5) * 30;
+        let ay = cur.y * 0.5 + (Math.random() - 0.5) * 30 - f.vy * 0.5;
+
+        if (f.escortId >= 0 && f.escortId < turtles.length && f.alarm < 0.3) {
+          const t = turtles[f.escortId];
+          const fx = Math.cos(t.heading);
+          const fy = Math.sin(t.heading);
+          const nx = -fy;
+          const ny = fx;
+          const tx = t.nodes[6] - fx * t.length * 0.1 + nx * f.escortSide * t.length * f.escortDist * 0.4;
+          const ty = t.nodes[7] - fy * t.length * 0.1 + ny * f.escortSide * t.length * f.escortDist * 0.4;
+          ax += (tx - f.x) * 1.6 + (fx * t.speed - f.vx) * 2.0;
+          ay += (ty - f.y) * 1.6 + (fy * t.speed - f.vy) * 2.0;
+        }
+
+        if (pointer.active) {
+          const dx = f.x - pointer.x;
+          const dy = f.y - pointer.y;
+          const d = Math.hypot(dx, dy);
+          if (d < 130 && d > 1e-3) {
+            const w = (1 - d / 130) ** 2;
+            ax += (dx / d) * 850 * w;
+            ay += (dy / d) * 850 * w;
+            f.alarm = Math.max(f.alarm, w);
+          }
+        }
+
+        const mPad = 32;
+        if (f.x < mPad) ax += (mPad - f.x) * 5;
+        else if (f.x > W - mPad) ax -= (f.x - (W - mPad)) * 5;
+        if (f.y < mPad) ay += (mPad - f.y) * 5;
+        else if (f.y > H - mPad) ay -= (f.y - (H - mPad)) * 5;
+
+        const before = Math.atan2(f.vy, f.vx);
+        f.vx += ax * dt;
+        f.vy += ay * dt;
+        const spd = Math.hypot(f.vx, f.vy) || 1;
+        const maxSpd = 55 * (1 + f.alarm * 1.3);
+        if (spd > maxSpd) {
+          f.vx *= maxSpd / spd;
+          f.vy *= maxSpd / spd;
+        } else if (spd < 16) {
+          f.vx *= 16 / spd;
+          f.vy *= 16 / spd;
+        }
+        f.turn = angleDiff(before, Math.atan2(f.vy, f.vx)) / dt;
+        f.x = clamp(f.x + f.vx * dt, -30, W + 30);
+        f.y = clamp(f.y + f.vy * dt, -30, H + 30);
+      }
+    }
+  }
+
+  class TurtleRenderer extends BaseAsciiRenderer {
+    constructor(canvas) {
+      super(canvas, TURTLE_KINDS, TURTLE_TINTS);
+      this.ambientGlyph = "·";
+      this.spine = new Float32Array(TURTLE_NODES * 2);
+      this.arc = new Float32Array(TURTLE_NODES);
+      this.arcTotal = 1;
+      this.curTurtle = null;
+      this.curShape = TURTLE_SHAPES.loggerhead;
+    }
+
+    render(world, dt) {
+      const { ctx, dpr, cols, ch } = this;
+      if (cols === 0) return;
+      const t = world.time;
+
+      this.consumeEvents(world);
+      this.rasterizeTurtles(world.turtles, t);
+      this.depositWake(world);
+      this.diffuse(dt);
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.bg, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      this.markAmbient(world.fish);
+      this.drawDots();
+
+      ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      this.drawHeat();
+      this.drawAmbient();
+      this.drawTurtleCells(t);
+    }
+
+    depositWake(world) {
+      const { energy } = this;
+      for (const f of world.fish) {
+        const i = this.cellIndex(f.x, f.y);
+        if (i >= 0) energy[i] = Math.min(1.5, energy[i] + 0.01 + f.alarm * 0.02);
+      }
+      for (const t of world.turtles) {
+        const i = this.cellIndex(t.nodes[0], t.nodes[1]);
+        if (i >= 0) energy[i] = Math.min(1.5, energy[i] + 0.035);
+      }
+    }
+
+    sampleTurtle(px, py) {
+      const { spine, curTurtle: t, curShape: shape } = this;
+      const L = this.arcTotal;
+
+      // Coordinate system along turtle's spine (head = node 0, tail = node 15)
+      const hx = spine[0];
+      const hy = spine[1];
+      const tx = spine[TURTLE_NODES * 2 - 2];
+      const ty = spine[TURTLE_NODES * 2 - 1];
+      const dx = tx - hx;
+      const dy = ty - hy;
+      const bodyLen = Math.hypot(dx, dy) || 1;
+      const ux = dx / bodyLen;
+      const uy = dy / bodyLen;
+      const nx = -uy;
+      const ny = ux;
+
+      const relX = px - hx;
+      const relY = py - hy;
+      const u = relX * ux + relY * uy;
+      const sd = u / bodyLen; // 0 at head, 1 at tail
+      const v = relX * nx + relY * ny;
+      const a = Math.abs(v);
+      const signV = v >= 0 ? 1 : -1;
+
+      this.hitDist = Math.hypot(u - clamp(u, 0, bodyLen), a);
+      this.hitS = clamp(sd, 0, 1);
+      this.hitV = v;
+
+      // ── 1. HEAD & BEAK (sd from -0.06 to 0.18) ──
+      const headL = shape.headScale || 0.15;
+      const headCenterSd = headL * 0.55;
+      if (sd >= -0.03 && sd <= headL + 0.04) {
+        const headProg = clamp((sd + 0.03) / (headL + 0.07), 0, 1);
+        let headW;
+        if (shape.beakSharp) {
+          // Hawksbill: narrow, hawk-like pointed beak
+          headW = headL * L * 0.48 * Math.pow(headProg, 0.72) * (1 - 0.28 * headProg);
+        } else {
+          // Loggerhead/Green: broader, powerful rounded head
+          headW = headL * L * 0.56 * Math.sin(Math.pow(headProg, 0.6) * Math.PI * 0.85);
+        }
+        if (a <= headW) {
+          // Eyes placed laterally on the upper third of the head
+          const eyeDist = Math.hypot((sd - headL * 0.45) * 5.0, (a - headW * 0.78) * 4.5);
+          if (eyeDist < 0.14) {
+            this.hitFlag = FLAG_EYE;
+            this.hitShade = 0;
+          } else {
+            this.hitFlag = FLAG_BODY;
+            this.hitShade = 0.70 - 0.22 * (a / (headW || 1));
+          }
+          return true;
+        }
+      }
+
+      // ── 2. CARAPACE / SHELL (sd from 0.18 to 0.82) ──
+      const shellStart = 0.18;
+      const shellEnd = 0.82;
+      if (sd >= shellStart && sd <= shellEnd) {
+        const sNorm = (sd - shellStart) / (shellEnd - shellStart); // 0 at anterior nuchal notch, 1 at posterior
+        const maxShellW = L * (shape.shellWidth || 0.42);
+
+        // Hydrodynamic heart/oval carapace silhouette
+        let shellProfile;
+        if (shape.scuteType === "ridley") {
+          // Olive Ridley: wide, almost circular dome
+          shellProfile = Math.sin(Math.pow(sNorm, 0.7) * Math.PI);
+        } else if (shape.scuteType === "loggerhead") {
+          // Loggerhead: broad shoulders tapering toward posterior
+          shellProfile = Math.sin(Math.pow(sNorm, 0.62) * Math.PI) * (1 - 0.14 * sNorm);
+        } else {
+          // Green / Hawksbill: classic elegant teardrop oval
+          shellProfile = Math.sin(Math.pow(sNorm, 0.75) * Math.PI);
+        }
+
+        // Serrated rear marginal scutes for Hawksbill
+        let serration = 0;
+        if (shape.serratedMargin && sNorm > 0.68) {
+          serration = 0.04 * Math.sin(sNorm * 38) * ((sNorm - 0.68) / 0.32);
+        }
+
+        const halfW = maxShellW * (shellProfile + serration);
+        if (a <= halfW) {
+          const rShell = a / (halfW || 1); // 0 at vertebral ridge, 1 at marginal rim
+
+          // Vertebral ridge (central keel along spine)
+          if (rShell < 0.08) {
+            this.hitFlag = FLAG_RIDGE;
+            this.hitShade = 0.95;
+            return true;
+          }
+
+          // Marginal scutes (outer rim of shell)
+          if (rShell > 0.86) {
+            this.hitFlag = FLAG_FIN;
+            this.hitShade = 0.45;
+            return true;
+          }
+
+          // Scute seams & tortoiseshell patterns
+          const scuteU = sNorm * 6.5;
+          const scuteV = rShell * 3.2;
+          const seamDist = Math.min(Math.abs(scuteU - Math.round(scuteU)), Math.abs(scuteV - Math.round(scuteV)));
+
+          if (seamDist < 0.08) {
+            this.hitFlag = FLAG_RIDGE; // Dark scute division groove
+            this.hitShade = 0.85;
+          } else if (shape.scuteType === "hawksbill" && (hash3(Math.round(scuteU), Math.round(scuteV), t.id) > 0.35)) {
+            // Hawksbill amber marbling
+            this.hitFlag = FLAG_WHITE_SPOT;
+            this.hitShade = 0.90;
+          } else {
+            this.hitFlag = FLAG_BODY;
+            this.hitShade = 0.68 - rShell * 0.22;
+          }
+          return true;
+        }
+      }
+
+      // ── 3. FRONT FLIPPERS (PECTORAL WINGS) ──
+      // Long, swept wing-like flippers executing a graceful rowing stroke
+      const flipperRootSd = 0.26;
+      const stroke = Math.sin(t.strokeCycle);
+      const strokeBack = Math.cos(t.strokeCycle);
+
+      // Flipper reaches from root out to wingSpan
+      const maxSpan = L * (shape.flipperSpan || 0.46);
+      if (a >= L * 0.12 && a <= maxSpan + L * 0.05) {
+        const spanProg = (a - L * 0.12) / maxSpan; // 0 at shoulder, 1 at flipper tip
+        // Rowing stroke sweeps flipper forward and back with tip lagging
+        const sweep = (stroke * 0.12 - spanProg * strokeBack * 0.06);
+        const flipperAxisSd = flipperRootSd + spanProg * 0.22 + sweep;
+        const flipperChord = L * 0.11 * (1 - spanProg * 0.58) * Math.sin(Math.pow(spanProg, 0.4) * Math.PI);
+        const dAxis = Math.abs(sd - flipperAxisSd);
+
+        if (dAxis <= flipperChord) {
+          this.hitFlag = spanProg > 0.88 ? FLAG_FIN : FLAG_BODY;
+          this.hitShade = 0.62 - spanProg * 0.25;
+          return true;
+        }
+      }
+
+      // ── 4. REAR FLIPPERS (RUDDERS) ──
+      // Shorter, paddle-shaped flippers at the rear (sd ~ 0.76 to 0.94)
+      const rearRootSd = 0.78;
+      const rearMaxSpan = L * 0.22;
+      if (a >= L * 0.06 && a <= rearMaxSpan + L * 0.04 && sd >= 0.72 && sd <= 0.96) {
+        const rearSpanProg = (a - L * 0.06) / rearMaxSpan;
+        const rearAxisSd = rearRootSd + rearSpanProg * 0.12;
+        const rearChord = L * 0.075 * (1 - rearSpanProg * 0.45);
+        if (Math.abs(sd - rearAxisSd) <= rearChord) {
+          this.hitFlag = FLAG_FIN;
+          this.hitShade = 0.55 - rearSpanProg * 0.2;
+          return true;
+        }
+      }
+
+      // ── 5. SHORT TAIL (sd from 0.82 to 0.94) ──
+      if (sd >= 0.82 && sd <= 0.94) {
+        const tailProg = (sd - 0.82) / 0.12;
+        const tailW = L * 0.038 * (1 - tailProg);
+        if (a <= tailW) {
+          this.hitFlag = FLAG_BODY;
+          this.hitShade = 0.55;
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    rasterizeTurtles(turtles, t) {
+      const { cellFlag, cellShade, cellKey, cellDepth, cellKind, cols, rows, cw, ch, kinds } = this;
+      cellFlag.fill(0);
+
+      for (let mIdx = 0; mIdx < turtles.length; mIdx++) {
+        const turtle = turtles[mIdx];
+        this.curTurtle = turtle;
+        const kindIndex = Math.max(0, kinds.indexOf(turtle.kind));
+        this.curShape = TURTLE_SHAPES[turtle.kind] || TURTLE_SHAPES.loggerhead;
+
+        const L = turtle.length;
+        const spine = this.spine;
+        const nodes = turtle.nodes;
+        for (let k = 0; k < TURTLE_NODES * 2; k++) spine[k] = nodes[k];
+        this.arcTotal = L;
+
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let k = 0; k < TURTLE_NODES; k++) {
+          minX = Math.min(minX, spine[k * 2]);
+          maxX = Math.max(maxX, spine[k * 2]);
+          minY = Math.min(minY, spine[k * 2 + 1]);
+          maxY = Math.max(maxY, spine[k * 2 + 1]);
+        }
+        const reach = L * (this.curShape.flipperSpan || 0.48) + 18;
+        const c0 = Math.max(0, Math.floor((minX - reach) / cw));
+        const c1 = Math.min(cols - 1, Math.floor((maxX + reach) / cw));
+        const r0 = Math.max(0, Math.floor((minY - reach) / ch));
+        const r1 = Math.min(rows - 1, Math.floor((maxY + reach) / ch));
+        if (c0 > c1 || r0 > r1) continue;
+
+        const skipBeyond = reach + Math.hypot(cw, ch);
+
+        for (let r = r0; r <= r1; r++) {
+          for (let c = c0; c <= c1; c++) {
+            const x = c * cw;
+            const y = r * ch;
+            const centerHit = this.sampleTurtle(x + cw / 2, y + ch / 2);
+            if (!centerHit && this.hitDist > skipBeyond) continue;
+            const flag = this.hitFlag;
+            const shade = this.hitShade;
+            const s = this.hitS;
+            const v = this.hitV;
+
+            let hits = centerHit ? 1 : 0;
+            for (let k = 0; k < SUBSAMPLES.length; k += 2) {
+              if (this.sampleTurtle(x + SUBSAMPLES[k] * cw, y + SUBSAMPLES[k + 1] * ch)) hits++;
+            }
+            if (hits === 0) continue;
+            const coverage = hits / 5;
+
+            const i = r * cols + c;
+            const key = (hash3(Math.round(s * 52), Math.round(v / (cw * 0.9)), turtle.id) * 4294967295) >>> 0;
+            cellKey[i] = key;
+            cellDepth[i] = turtle.depth;
+            cellKind[i] = kindIndex;
+
+            if (centerHit && coverage >= 0.6) {
+              cellFlag[i] = flag;
+              const flicker = (hash3(c, r, Math.floor(t * 6)) - 0.5) * 0.05;
+              cellShade[i] = clamp(shade + flicker, 0, 1);
+            } else {
+              cellFlag[i] = FLAG_EDGE;
+              cellShade[i] = coverage;
+            }
+          }
+        }
+      }
+    }
+
+    drawTurtleCells(t) {
+      const { ctx, cols, rows, cw, ch, cellFlag, cellShade, cellKey, cellDepth, cellKind, kinds } = this;
+      const HAWKSBILL_MARBLE_GLYPHS = "%#*@S";
+      const n = cols * rows;
+
+      for (let i = 0; i < n; i++) {
+        const flag = cellFlag[i];
+        if (!flag) continue;
+        const col = i % cols;
+        const row = (i / cols) | 0;
+        const x = col * cw;
+        const y = row * ch;
+        const key = cellKey[i];
+        const shade = cellShade[i];
+        const dim = 0.85 + 0.15 * cellDepth[i];
+        const kindName = kinds[cellKind[i]] || "loggerhead";
+        const shape = TURTLE_SHAPES[kindName] || TURTLE_SHAPES.loggerhead;
+        const [tr, tg, tb] = shape.tint;
+
+        const tick = Math.floor(t * 2.2 + (key % 997) / 97);
+        const roll = hash3(key, tick, 7);
+
+        if (flag === FLAG_EDGE) {
+          const set = shade >= 0.5 ? EDGE_HEAVY : EDGE_LIGHT;
+          const glyph = set[(key >>> 8) % set.length];
+          ctx.fillStyle = `rgba(${Math.round(45 * tr)}, ${Math.round(55 * tg)}, ${Math.round(65 * tb)}, 0.75)`;
+          ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
+          continue;
+        }
+
+        if (flag === FLAG_WHITE_SPOT) {
+          // Hawksbill golden tortoiseshell scute infill
+          const lum = Math.round(215 * dim);
+          ctx.fillStyle = `rgb(${Math.min(255, Math.round(lum * 1.15))}, ${Math.min(255, Math.round(lum * 0.85))}, ${Math.round(lum * 0.35)})`;
+          ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
+          const glyph = HAWKSBILL_MARBLE_GLYPHS[(key >>> 5) % HAWKSBILL_MARBLE_GLYPHS.length];
+          ctx.fillStyle = "#3e2205";
+          ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
+          continue;
+        }
+
+        let lum;
+        let glyph;
+        if (flag === FLAG_RIDGE) {
+          // Dark scute seam / vertebral keel
+          lum = 48;
+          glyph = RIDGE_GLYPHS[(key >>> 8) % RIDGE_GLYPHS.length];
+        } else if (flag === FLAG_EYE) {
+          lum = 32;
+          glyph = "o";
+        } else if (flag === FLAG_FIN) {
+          lum = 210 - shade * 60;
+          glyph = FIN_GLYPHS[(key >>> 8) % FIN_GLYPHS.length];
+        } else {
+          lum = 224 - shade * 84;
+          const jitter = ((key >>> 4) % 3) - 1;
+          glyph = SKIN_RAMP[clamp(Math.floor(shade * 8.99) + jitter, 0, SKIN_RAMP.length - 1)];
+        }
+
+        lum *= dim;
+        const r = clamp(Math.round(lum * tr), 0, 255);
+        const g = clamp(Math.round(lum * tg), 0, 255);
+        const b = clamp(Math.round(lum * tb), 0, 255);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
+
+        let glyphColor;
+        if (flag === FLAG_EYE) {
+          glyphColor = "#ffffff";
+        } else if (roll < 0.035) {
+          glyphColor = ACCENTS[key % ACCENTS.length];
+        } else if (flag === FLAG_RIDGE) {
+          glyphColor = "#fef08a"; // Soft golden seam highlight
+        } else {
+          glyphColor = `rgb(${Math.min(255, r + 42)}, ${Math.min(255, g + 46)}, ${Math.min(255, b + 52)})`;
+        }
+        ctx.fillStyle = glyphColor;
+        ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
+      }
+    }
+  }
+
+  class TurtleEngine extends BaseLoopEngine {
+    constructor(canvas, specs) {
+      const world = new TurtleWorld(specs);
+      const renderer = new TurtleRenderer(canvas);
+      super(canvas, world, renderer);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 4. PERMANENT SEA WAVES ENGINE ("waves" / "sea_waves")
   //    Gentle, perpetual ocean swell rolling fluently from top to bottom (up -> down).
   //    Features multi-harmonic lateral distortion along the X axis so waves are
@@ -3372,11 +4097,13 @@
   window.JellyfishEngine = JellyfishEngine;
   window.BacteriaEngine = BacteriaEngine;
   window.MantaEngine = MantaEngine;
+  window.TurtleEngine = TurtleEngine;
   window.SeaWaveEngine = SeaWaveEngine;
   window.SoundWaveEngine = SoundWaveEngine;
 
   const THEME_CREDITS = {
     sharks: "ASCII Sharks by stackedlol",
+    turtles: "ASCII Sea Turtles • Loggerhead, Green, Olive Ridley, Hawksbill",
     jellyfish: "ASCII Jellyfish • Inspired by stackedlol",
     bacteria: "ASCII Game of Life • John Horton Conway (1970)",
     mantas: "ASCII Manta Rays • Inspired by stackedlol",
@@ -3398,9 +4125,12 @@
         ? "bacteria"
         : themeName === "sound_waves" || themeName === "sea_waves"
         ? "waves"
+        : themeName === "turtle" || themeName === "tortuga" || themeName === "tortugas"
+        ? "turtles"
         : themeName;
     const normalized = [
       "sharks",
+      "turtles",
       "jellyfish",
       "bacteria",
       "mantas",
@@ -3418,7 +4148,9 @@
     }
 
     activeThemeName = normalized;
-    if (normalized === "jellyfish") {
+    if (normalized === "turtles") {
+      activeEngine = new TurtleEngine(canvas);
+    } else if (normalized === "jellyfish") {
       activeEngine = new JellyfishEngine(canvas);
     } else if (normalized === "bacteria") {
       activeEngine = new BacteriaEngine(canvas);
