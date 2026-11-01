@@ -1484,7 +1484,8 @@
       this.fade = new Float32Array(0);
       this.neighbors = new Uint8Array(0);
       this.cellGrowth = new Float32Array(0); // [0..1] continuous growth/bloom progress
-      this.cellPhase = new Float32Array(0);  // smooth spatial phase offset for breathing blooms
+      this.cellPhase = new Float32Array(0);  // spatial phase offset
+      this.cellSpeedK = new Float32Array(0); // Individual time-movement ratio k per cell!
 
       this.liveCount = 0;
       this.birthsLastStep = 0;
@@ -1520,11 +1521,15 @@
         this.neighbors = new Uint8Array(n);
         this.cellGrowth = new Float32Array(n);
         this.cellPhase = new Float32Array(n);
+        this.cellSpeedK = new Float32Array(n);
 
         for (let r = 0; r < newRows; r++) {
           for (let c = 0; c < newCols; c++) {
             const i = r * newCols + c;
-            this.cellPhase[i] = ((c * 0.082 + r * 0.126 + hash3(c, r, 29) * 0.35) % 1.0 + 1.0) % 1.0;
+            const h = hash3(c, r, 29);
+            this.cellPhase[i] = ((c * 0.082 + r * 0.126 + h * 0.35) % 1.0 + 1.0) % 1.0;
+            // Each cell has an organic movement ratio k between 0.70 and 1.35
+            this.cellSpeedK[i] = 0.70 + 0.65 * hash3(c, r, 73);
             this.cellGrowth[i] = 0.0;
           }
         }
@@ -1743,26 +1748,28 @@
     // In shrink phase, parameters modulate gently and slowly to create a relaxed, gradual contraction.
     step(dt) {
       this.time += dt;
-      const { cols, rows, alive, nextAlive, age, strain, fade, cellGrowth, cellPhase, neighbors, genInterval } = this;
+      const { cols, rows, alive, nextAlive, age, strain, fade, cellGrowth, cellPhase, cellSpeedK, neighbors, genInterval } = this;
       if (!cols || !rows) return;
 
       const n = cols * rows;
-      const growSpeed = 1 / (genInterval * 0.52);
-      const fadeSpeed = 1 / (genInterval * 0.72);
+      const baseGrowSpeed = 1 / (genInterval * 0.52);
+      const baseFadeSpeed = 1 / (genInterval * 0.72);
       const ghostDecay = Math.exp(-dt * 1.5);
 
       let liveTotal = 0;
       let births = 0;
       let activeMoving = 0;
 
-      // Smooth 60 FPS continuous visual interpolation of cell sizes
+      // Smooth continuous visual interpolation of cell sizes with unique ratio k per cell
+      // so each cell grows and recedes at its own individual speed k!
       for (let i = 0; i < n; i++) {
+        const k = cellSpeedK ? cellSpeedK[i] : 1.0;
         if (alive[i]) {
-          cellGrowth[i] = Math.min(1.0, cellGrowth[i] + dt * growSpeed);
+          cellGrowth[i] = Math.min(1.0, cellGrowth[i] + dt * baseGrowSpeed * k);
           liveTotal++;
           if (age[i] <= 4) activeMoving++;
         } else {
-          cellGrowth[i] = Math.max(0.0, cellGrowth[i] - dt * fadeSpeed);
+          cellGrowth[i] = Math.max(0.0, cellGrowth[i] - dt * baseFadeSpeed * k);
           if (fade[i] > 0.005) {
             fade[i] *= ghostDecay;
             if (fade[i] < 0.01) fade[i] = 0;
@@ -2114,7 +2121,12 @@
           glyphColor = "#334155";
         }
 
-        const growth = world.cellGrowth ? world.cellGrowth[i] : 1.0;
+        // Visual interpolation with organic continuous breathing offset per cell
+        const phase = world.cellPhase ? world.cellPhase[i] : 0;
+        const k = world.cellSpeedK ? world.cellSpeedK[i] : 1.0;
+        const isAlive = world.alive ? world.alive[i] : 0;
+        const breath = 0.045 * Math.sin(t * (2.8 * k) + phase * 6.28);
+        const growth = clamp((world.cellGrowth ? world.cellGrowth[i] : 1.0) + (isAlive ? breath : 0), 0, 1);
         if (growth < 0.04) continue;
 
         const curW = Math.max(2, (cw - 1) * growth);
@@ -3290,13 +3302,11 @@
           const key = (hash3(c, r, 17) * 4294967295) >>> 0;
 
           if (elev > 0.74) {
-            // ── PEAK ROLLING WAVE CREST & FOAM (Deep blue / cyan crest) ──
+            // ── PEAK ROLLING WAVE CREST & FOAM (Soft luminous blue block, gentle opacity) ──
             const crestNorm = clamp((elev - 0.74) / 0.26, 0, 1);
-            // Deep blue gradient block transitioning into cyan crest
-            const br = Math.round(20 + crestNorm * 45);
-            const bg = Math.round(55 + crestNorm * 90);
-            const bb = Math.round(135 + crestNorm * 95);
-            ctx.fillStyle = `rgb(${br}, ${bg}, ${bb})`;
+            // Soft translucent blue with gentle opacity (0.28 to 0.55) so it blends whiter and seamlessly into #fafbfe
+            const blockAlpha = (0.26 + crestNorm * 0.28).toFixed(3);
+            ctx.fillStyle = `rgba(56, 120, 195, ${blockAlpha})`;
             ctx.fillRect(px + 1, py + 1, cw - 1, ch - 1);
 
             let glyph;
@@ -3306,23 +3316,23 @@
               glyphColor = "#ffffff";
             } else {
               glyph = SEA_FACE_GLYPHS[(key >>> 4) % SEA_FACE_GLYPHS.length];
-              glyphColor = "#e0f2fe";
+              glyphColor = "#0f2b5c";
             }
 
             ctx.fillStyle = glyphColor;
             ctx.fillText(glyph, px + cw / 2, py + ch / 2 + 1);
           } else if (elev > 0.36) {
-            // ── SLOPING WAVE FACE (Deep blue translucent undulating characters) ──
+            // ── SLOPING WAVE FACE (Light, delicate translucent blue glyphs) ──
             const slopeNorm = (elev - 0.36) / 0.34;
-            const alpha = clamp(0.35 + slopeNorm * 0.45, 0.30, 0.80);
-            ctx.fillStyle = `rgba(28, 64, 138, ${alpha.toFixed(3)})`;
+            const alpha = clamp(0.18 + slopeNorm * 0.32, 0.16, 0.50);
+            ctx.fillStyle = `rgba(45, 95, 165, ${alpha.toFixed(3)})`;
             const glyph = SEA_FACE_GLYPHS[((key >>> 3) + tick) % SEA_FACE_GLYPHS.length];
             ctx.fillText(glyph, px + cw / 2, py + ch / 2 + 1);
           } else {
-            // ── TRANQUIL DEEP TROUGH (Subtle resting dark navy water specks) ──
+            // ── TRANQUIL DEEP TROUGH (Soft subtle pastel-navy specks) ──
             if (((c + r) & 1) === 0) {
-              const shimmer = 0.22 + 0.12 * Math.sin(t * 0.7 + (key % 23));
-              ctx.fillStyle = `rgba(30, 58, 115, ${shimmer.toFixed(3)})`;
+              const shimmer = 0.12 + 0.08 * Math.sin(t * 0.7 + (key % 23));
+              ctx.fillStyle = `rgba(70, 115, 175, ${shimmer.toFixed(3)})`;
               const glyph = SEA_TROUGH_GLYPHS[(key >>> 2) % SEA_TROUGH_GLYPHS.length];
               ctx.fillText(glyph, px + cw / 2, py + ch / 2 + 1);
             }
@@ -3335,9 +3345,9 @@
       const { ctx } = this;
       for (const f of world.foamSpecks) {
         const elev = world.sampleElevation(f.x, f.y);
-        // Foam specks glow bright cyan-white as they ride along the deep blue crests
-        const alpha = clamp(0.40 + elev * 0.55, 0.35, 0.95);
-        ctx.fillStyle = elev > 0.65 ? `rgba(224, 242, 254, ${alpha.toFixed(3)})` : `rgba(29, 78, 150, ${alpha.toFixed(3)})`;
+        // Foam specks glow with soft delicate blue-white opacity
+        const alpha = clamp(0.25 + elev * 0.40, 0.20, 0.65);
+        ctx.fillStyle = elev > 0.65 ? `rgba(240, 249, 255, ${alpha.toFixed(3)})` : `rgba(45, 95, 165, ${alpha.toFixed(3)})`;
         const glyph = elev > 0.65 ? "*" : "·";
         ctx.fillText(glyph, f.x, f.y);
       }
