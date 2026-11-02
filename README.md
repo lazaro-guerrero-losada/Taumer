@@ -38,12 +38,12 @@ An ambient deep-work environment featuring real-time ASCII ocean animations that
 </p>
 
 <p align="center">
-  <em>Live Active Focus Session (Running Mechanical Flap Stopwatch & Ambient ASCII Ocean):</em>
+  <em>Live Active Focus Session (Running Mechanical Flap Stopwatch & Dynamic ASCII Marine Ecosystem):</em>
   <br />
-  <img src="screenshots/taumer_focus_demo.gif" alt="Taumer Home Focus Space - Live Demo" width="920" />
+  <img src="screenshots/taumer_aquarium_demo.gif" alt="Taumer Home Focus Space - Marine Ecosystem Live Demo" width="920" />
 </p>
 
-- **Real-Time ASCII Sharks Ocean**: GPU-accelerated ASCII simulation running seamlessly in the background (powered by [ascii-sharks](https://github.com/stackedlol/ascii-sharks)).
+- **Real-Time Dynamic ASCII Ocean & Marine Safari**: GPU-accelerated ASCII simulation running seamlessly in the background with rotating marine creatures (sharks, manta rays, and sea turtles).
 - **Translucent Glass Capsule**: Pick a pending task or type an open-ended concept, select the project tag, and start focusing instantly.
 - **Flap Stopwatch & Quick Controls**: Mechanical-style split flap timer with pause, save, stop, and parallel secondary focus slots.
 
@@ -239,7 +239,7 @@ sudo apt install -y \
 
 ## 🙏 Credits & Acknowledgments
 
-- **ASCII Sharks Animation**: Interactive ASCII shark canvas adapted from [stackedlol/ascii-sharks](https://github.com/stackedlol/ascii-sharks).
+- **ASCII Ocean & Marine Animations**: Interactive ASCII canvas simulation adapted from [stackedlol/ascii-sharks](https://github.com/stackedlol/ascii-sharks) with custom biomimetic expansions for sea turtles, manta rays, and jellyfish.
 
 ---
 
