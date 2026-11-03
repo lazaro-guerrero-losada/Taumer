@@ -47,3 +47,9 @@ parallel_app/
 # Raw user uploads / workspace source assets
 Logo taumer*
 *.vectorcraft
+
+# PyInstaller build artifacts & release archives
+build/
+dist/
+*.tar.gz
+*.zip

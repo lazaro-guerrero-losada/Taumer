@@ -17,6 +17,9 @@ import threading
 import time
 import urllib.parse
 import shutil
+import sys
+import tempfile
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import requests
@@ -24,13 +27,23 @@ import requests
 from config import LOCAL_DB_FILE, AW_URL, FAVICONS_DIR
 from models import WindowActivityItem
 
-# Load system liblz4 for Firefox session decompression
+# Load system liblz4 for Firefox session decompression (Linux / Windows)
+_liblz4 = None
 try:
-    _liblz4 = ctypes.CDLL('liblz4.so.1')
+    if sys.platform == "win32":
+        _liblz4 = ctypes.CDLL('lz4.dll')
+    else:
+        _liblz4 = ctypes.CDLL('liblz4.so.1')
     _liblz4.LZ4_decompress_safe.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
     _liblz4.LZ4_decompress_safe.restype = ctypes.c_int
 except Exception:
     _liblz4 = None
+
+try:
+    import lz4.block
+    HAS_PY_LZ4 = True
+except ImportError:
+    HAS_PY_LZ4 = False
 
 
 class FaviconService:
@@ -124,13 +137,17 @@ class FaviconService:
 
     def _extract_from_firefox_db(self, url: str, scheme: str, domain: str, safe_domain: str) -> Optional[str]:
         try:
-            ff_favs = glob.glob(os.path.expanduser("~/.mozilla/firefox/*/favicons.sqlite"))
+            if sys.platform == "win32":
+                appdata = os.environ.get("APPDATA", "")
+                ff_favs = glob.glob(os.path.join(appdata, "Mozilla", "Firefox", "Profiles", "*", "favicons.sqlite"))
+            else:
+                ff_favs = glob.glob(os.path.expanduser("~/.mozilla/firefox/*/favicons.sqlite"))
             if not ff_favs:
                 return None
 
             ff_favs.sort(key=os.path.getmtime, reverse=True)
             src = ff_favs[0]
-            tmp_db = f"/tmp/taumer_fav_{os.getpid()}.sqlite"
+            tmp_db = os.path.join(tempfile.gettempdir(), f"taumer_fav_{os.getpid()}.sqlite")
 
             shutil.copy2(src, tmp_db)
             if os.path.exists(src + "-wal"):
@@ -250,8 +267,13 @@ class WindowWatcher:
         if self.is_activitywatch_available():
             return True
         try:
-            aw_server_bin = os.path.expanduser("~/.local/bin/aw-server")
-            aw_watcher_bin = os.path.expanduser("~/.local/bin/aw-watcher-window")
+            if sys.platform == "win32":
+                localappdata = os.environ.get("LOCALAPPDATA", "")
+                aw_server_bin = os.path.join(localappdata, "activitywatch", "aw-server", "aw-server.exe")
+                aw_watcher_bin = os.path.join(localappdata, "activitywatch", "aw-watcher-window", "aw-watcher-window.exe")
+            else:
+                aw_server_bin = os.path.expanduser("~/.local/bin/aw-server")
+                aw_watcher_bin = os.path.expanduser("~/.local/bin/aw-watcher-window")
             if os.path.exists(aw_server_bin):
                 subprocess.Popen([aw_server_bin], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 time.sleep(1.5)
@@ -270,13 +292,20 @@ class WindowWatcher:
         Extracts all currently open tabs directly from Firefox sessionstore,
         resolving deduplicated favicons for each website.
         """
-        if not _liblz4:
+        if not _liblz4 and not HAS_PY_LZ4:
             return []
 
-        search_patterns = [
-            os.path.expanduser('~/.mozilla/firefox/*/sessionstore-backups/recovery.jsonlz4'),
-            os.path.expanduser('~/.mozilla/firefox/*/sessionstore-backups/recovery.baklz4'),
-        ]
+        if sys.platform == "win32":
+            appdata = os.environ.get("APPDATA", "")
+            search_patterns = [
+                os.path.join(appdata, "Mozilla", "Firefox", "Profiles", "*", "sessionstore-backups", "recovery.jsonlz4"),
+                os.path.join(appdata, "Mozilla", "Firefox", "Profiles", "*", "sessionstore-backups", "recovery.baklz4"),
+            ]
+        else:
+            search_patterns = [
+                os.path.expanduser('~/.mozilla/firefox/*/sessionstore-backups/recovery.jsonlz4'),
+                os.path.expanduser('~/.mozilla/firefox/*/sessionstore-backups/recovery.baklz4'),
+            ]
 
         found_files = []
         for pat in search_patterns:
@@ -299,15 +328,28 @@ class WindowWatcher:
                 if len(data) < 12 or data[:8] != b'mozLz40\0':
                     continue
 
-                uncompressed_size = struct.unpack('<I', data[8:12])[0]
-                compressed_body = data[12:]
+                decompressed = None
+                if HAS_PY_LZ4:
+                    try:
+                        decompressed = lz4.block.decompress(data[8:])
+                    except Exception:
+                        pass
 
-                out_buf = ctypes.create_string_buffer(uncompressed_size)
-                res = _liblz4.LZ4_decompress_safe(compressed_body, out_buf, len(compressed_body), uncompressed_size)
-                if res != uncompressed_size:
+                if decompressed is None and _liblz4:
+                    try:
+                        uncompressed_size = struct.unpack('<I', data[8:12])[0]
+                        compressed_body = data[12:]
+                        out_buf = ctypes.create_string_buffer(uncompressed_size)
+                        res = _liblz4.LZ4_decompress_safe(compressed_body, out_buf, len(compressed_body), uncompressed_size)
+                        if res == uncompressed_size:
+                            decompressed = out_buf.raw[:res]
+                    except Exception:
+                        pass
+
+                if not decompressed:
                     continue
 
-                js_data = json.loads(out_buf.raw[:res].decode('utf-8'))
+                js_data = json.loads(decompressed.decode('utf-8'))
 
                 for win in js_data.get('windows', []):
                     for tab in win.get('tabs', []):
@@ -360,6 +402,44 @@ class WindowWatcher:
         # Remove notification prefixes like (3) or (15)
         title = re.sub(r"^\(\d+\)\s*", "", title).strip()
         return title or f"{app_name} Tab"
+
+    def _get_active_windows_window(self) -> Optional[Dict[str, str]]:
+        if sys.platform != "win32":
+            return None
+        try:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if not hwnd:
+                return None
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buff = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+            title = buff.value
+
+            pid = ctypes.c_ulong()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+            app_name = "Unknown"
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h_process = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if h_process:
+                try:
+                    mod_buff = ctypes.create_unicode_buffer(1024)
+                    size = ctypes.c_ulong(1024)
+                    if ctypes.windll.kernel32.QueryFullProcessImageNameW(h_process, 0, mod_buff, ctypes.byref(size)):
+                        app_name = Path(mod_buff.value).stem
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(h_process)
+
+            app_name = self._clean_app_name(app_name)
+            title = self._clean_tab_title(title, app_name) if title else "Untitled"
+            return {"app": app_name, "title": title}
+        except Exception:
+            return None
+
+    def _get_active_window(self) -> Optional[Dict[str, str]]:
+        if sys.platform == "win32":
+            return self._get_active_windows_window()
+        return self._get_active_x11_window()
 
     def _get_active_x11_window(self) -> Optional[Dict[str, str]]:
         try:
@@ -473,7 +553,7 @@ class WindowWatcher:
 
         while self.running:
             try:
-                win = self._get_active_x11_window()
+                win = self._get_active_window()
                 current_time = time.time()
 
                 if win:

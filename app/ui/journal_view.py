@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import subprocess
 
 from models import JournalEntry, Task, DailyReconciliation
+from config import open_file_or_url
 from ui.dialogs import NewJournalEntryDialog, WorkGoalsDialog, NewTaskDialog, EditWorkdayDialog
 from ui.calendar_view import format_minutes_to_time, parse_time_minutes
 
@@ -2195,10 +2196,7 @@ class JournalView(Gtk.Box):
         file_path = self.storage.get_journal_file_path(date_str)
         if not file_path.exists():
             self.storage._write_journal_md(date_str, [])
-        try:
-            subprocess.Popen(["xdg-open", str(file_path)])
-        except Exception:
-            pass
+        open_file_or_url(file_path)
 
     def refresh(self):
         today_str = datetime.now().strftime("%Y-%m-%d")

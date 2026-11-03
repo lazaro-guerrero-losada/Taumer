@@ -1,6 +1,7 @@
 """
 SharkHomeView: Super-minimalist focus space with live ASCII Sharks ocean animation,
 frosted glass translucent input capsule, live stopwatch, and instant Obsidian logging.
+Includes native GTK fallback for environments where WebKit is not available (e.g. Windows).
 """
 
 import json
@@ -8,10 +9,16 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import gi
 gi.require_version('Gtk', '4.0')
-gi.require_version('WebKit', '6.0')
-from gi.repository import Gtk, WebKit, GLib
+try:
+    gi.require_version('WebKit', '6.0')
+    from gi.repository import WebKit
+    HAS_WEBKIT = True
+except Exception:
+    HAS_WEBKIT = False
+from gi.repository import Gtk, GLib
 
 from models import JournalEntry, Task
+from config import open_file_or_url
 
 
 class SharkHomeView(Gtk.Box):
@@ -70,6 +77,12 @@ class SharkHomeView(Gtk.Box):
         self.set_hexpand(True)
         self.set_vexpand(True)
 
+        if HAS_WEBKIT:
+            self._build_webkit_ui()
+        else:
+            self._build_native_gtk_ui()
+
+    def _build_webkit_ui(self):
         # WebKit WebView
         self.webview = WebKit.WebView()
         self.webview.set_hexpand(True)
@@ -100,13 +113,168 @@ class SharkHomeView(Gtk.Box):
 
         self.append(self.webview)
 
+    def _build_native_gtk_ui(self):
+        self._page_loaded = True
+        self._gtk_pending_tasks = []
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.set_hexpand(True)
+        outer.set_vexpand(True)
+        outer.set_valign(Gtk.Align.CENTER)
+        outer.set_halign(Gtk.Align.CENTER)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        card.set_size_request(500, -1)
+        card.add_css_class("card")
+        card.set_margin_top(32)
+        card.set_margin_bottom(32)
+        card.set_margin_start(32)
+        card.set_margin_end(32)
+
+        # Header tag
+        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        tag = Gtk.Label(label="FOCUS SPACE")
+        tag.add_css_class("badge")
+        top_box.append(tag)
+        card.append(top_box)
+
+        # Large Elapsed Timer Display
+        self.gtk_timer_lbl = Gtk.Label(label="00:00:00")
+        self.gtk_timer_lbl.add_css_class("title")
+        self.gtk_timer_lbl.set_margin_top(8)
+        self.gtk_timer_lbl.set_margin_bottom(8)
+        card.append(self.gtk_timer_lbl)
+
+        # Focus concept or task title input
+        self.gtk_title_entry = Gtk.Entry()
+        self.gtk_title_entry.set_placeholder_text("What are you focusing on?")
+        self.gtk_title_entry.connect("changed", self._on_gtk_title_changed)
+        card.append(self.gtk_title_entry)
+
+        # Selectors row
+        sel_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+        self.gtk_proj_model = Gtk.StringList()
+        self.gtk_proj_dropdown = Gtk.DropDown.new(self.gtk_proj_model, None)
+        self.gtk_proj_dropdown.set_hexpand(True)
+        self.gtk_proj_dropdown.connect("notify::selected", self._on_gtk_proj_changed)
+        sel_row.append(self.gtk_proj_dropdown)
+
+        self.gtk_task_model = Gtk.StringList()
+        self.gtk_task_dropdown = Gtk.DropDown.new(self.gtk_task_model, None)
+        self.gtk_task_dropdown.set_hexpand(True)
+        self.gtk_task_dropdown.connect("notify::selected", self._on_gtk_task_dropdown_changed)
+        sel_row.append(self.gtk_task_dropdown)
+
+        card.append(sel_row)
+
+        # Buttons row
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btn_row.set_halign(Gtk.Align.CENTER)
+
+        self.gtk_btn_start = Gtk.Button(label="▶  Start Focus")
+        self.gtk_btn_start.add_css_class("btn-primary")
+        self.gtk_btn_start.connect("clicked", self._on_gtk_toggle_timer)
+        btn_row.append(self.gtk_btn_start)
+
+        self.gtk_btn_save = Gtk.Button(label="✓  Save Session")
+        self.gtk_btn_save.add_css_class("btn-secondary")
+        self.gtk_btn_save.connect("clicked", self._on_gtk_save_clicked)
+        btn_row.append(self.gtk_btn_save)
+
+        self.gtk_btn_reset = Gtk.Button(label="↺  Reset")
+        self.gtk_btn_reset.add_css_class("nav-button")
+        self.gtk_btn_reset.connect("clicked", self._on_gtk_reset_clicked)
+        btn_row.append(self.gtk_btn_reset)
+
+        card.append(btn_row)
+        outer.append(card)
+        scrolled.set_child(outer)
+        self.append(scrolled)
+
+        # Start GTK heartbeat
+        GLib.timeout_add_seconds(1, self._on_gtk_heartbeat)
+
+    def _on_gtk_heartbeat(self):
+        s = self.slots[0]
+        if s["running"]:
+            s["seconds"] += 1
+            secs = s["seconds"]
+            hrs = secs // 3600
+            mins = (secs % 3600) // 60
+            scs = secs % 60
+            self.gtk_timer_lbl.set_label(f"{hrs:02d}:{mins:02d}:{scs:02d}")
+        return True
+
+    def _on_gtk_title_changed(self, entry):
+        self.slots[0]["title"] = entry.get_text().strip()
+
+    def _on_gtk_proj_changed(self, dropdown, param):
+        idx = dropdown.get_selected()
+        if idx >= 0 and idx < self.gtk_proj_model.get_n_items():
+            self.slots[0]["project"] = self.gtk_proj_model.get_string(idx)
+
+    def _on_gtk_task_dropdown_changed(self, dropdown, param):
+        idx = dropdown.get_selected()
+        if idx > 0 and (idx - 1) < len(self._gtk_pending_tasks):
+            task = self._gtk_pending_tasks[idx - 1]
+            self.gtk_title_entry.set_text(task.title)
+            self.slots[0]["title"] = task.title
+            self.slots[0]["task_id"] = task.id
+            self.slots[0]["project"] = task.project
+            # Set project dropdown
+            for p_idx in range(self.gtk_proj_model.get_n_items()):
+                if self.gtk_proj_model.get_string(p_idx) == task.project:
+                    self.gtk_proj_dropdown.set_selected(p_idx)
+                    break
+
+    def _on_gtk_toggle_timer(self, btn):
+        s = self.slots[0]
+        s["running"] = not s["running"]
+        if s["running"]:
+            if not s["start_dt"]:
+                s["start_dt"] = datetime.now() - timedelta(seconds=s["seconds"])
+            if not s["title"]:
+                s["title"] = self.gtk_title_entry.get_text().strip() or "Focus Session"
+            self.gtk_btn_start.set_label("⏸  Pause")
+            self.gtk_btn_start.remove_css_class("btn-primary")
+            self.gtk_btn_start.add_css_class("btn-secondary")
+        else:
+            self.gtk_btn_start.set_label("▶  Resume")
+            self.gtk_btn_start.remove_css_class("btn-secondary")
+            self.gtk_btn_start.add_css_class("btn-primary")
+
+    def _on_gtk_save_clicked(self, btn):
+        s = self.slots[0]
+        secs = s["seconds"]
+        title = self.gtk_title_entry.get_text().strip() or s["title"] or "Focus Session"
+        proj = s.get("project") or "General"
+        task_id = s.get("task_id")
+        self._save_session_entry(title, proj, secs, task_id)
+        self._on_gtk_reset_clicked(None)
+
+    def _on_gtk_reset_clicked(self, btn):
+        s = self.slots[0]
+        s["running"] = False
+        s["seconds"] = 0
+        s["start_dt"] = None
+        s["task_id"] = None
+        self.gtk_timer_lbl.set_label("00:00:00")
+        self.gtk_btn_start.set_label("▶  Start Focus")
+        self.gtk_btn_start.remove_css_class("btn-secondary")
+        self.gtk_btn_start.add_css_class("btn-primary")
+
     def _on_load_changed(self, webview, event):
-        if event == WebKit.LoadEvent.FINISHED:
+        if HAS_WEBKIT and event == WebKit.LoadEvent.FINISHED:
             self._page_loaded = True
             self.refresh()
 
     def _eval_js(self, script: str):
-        if not self._page_loaded:
+        if not HAS_WEBKIT or not self._page_loaded:
             return
         try:
             self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
@@ -114,13 +282,36 @@ class SharkHomeView(Gtk.Box):
             print(f"[SharkHomeView] JS eval error: {e}")
 
     def set_background_theme(self, theme: str):
-        if not self._page_loaded:
+        if not HAS_WEBKIT or not self._page_loaded:
             return
         self._eval_js(f"if (window.setBackgroundTheme) window.setBackgroundTheme({json.dumps(theme)});")
 
     def refresh(self):
-        """Pushes latest projects, pending tasks, and background theme into the Web view."""
+        """Pushes latest projects, pending tasks, and background theme into the view."""
         if not self._page_loaded:
+            return
+
+        if not HAS_WEBKIT:
+            # Refresh project list in GTK dropdown
+            projects = self.storage.get_projects()
+            p_names = [p.name for p in projects]
+            if "General" not in p_names:
+                p_names.insert(0, "General")
+
+            while self.gtk_proj_model.get_n_items() > 0:
+                self.gtk_proj_model.remove(0)
+            for p in p_names:
+                self.gtk_proj_model.append(p)
+
+            # Refresh pending tasks in GTK dropdown
+            tasks = self.storage.get_tasks()
+            pending = [t for t in tasks if t.status != "done" and getattr(t, "item_type", "task") != "event"]
+            self._gtk_pending_tasks = pending
+            while self.gtk_task_model.get_n_items() > 0:
+                self.gtk_task_model.remove(0)
+            self.gtk_task_model.append("— Pick a pending task —")
+            for t in pending:
+                self.gtk_task_model.append(f"{t.title} ({t.project})")
             return
 
         # 0. Background theme
@@ -262,11 +453,7 @@ class SharkHomeView(Gtk.Box):
             elif action == "open_url":
                 url = msg.get("url")
                 if url:
-                    try:
-                        import subprocess
-                        subprocess.Popen(["xdg-open", url])
-                    except Exception as e:
-                        print(f"[SharkHomeView] Open URL error: {e}")
+                    open_file_or_url(url)
 
         except Exception as e:
             print(f"[SharkHomeView] Script message handler error: {e}")
@@ -321,6 +508,17 @@ class SharkHomeView(Gtk.Box):
         s["seconds"] = 0
         s["running"] = True
         s["start_dt"] = datetime.now()
+
+        if not HAS_WEBKIT:
+            self.gtk_title_entry.set_text(task.title)
+            for p_idx in range(self.gtk_proj_model.get_n_items()):
+                if self.gtk_proj_model.get_string(p_idx) == task.project:
+                    self.gtk_proj_dropdown.set_selected(p_idx)
+                    break
+            self.gtk_btn_start.set_label("⏸  Pause")
+            self.gtk_btn_start.remove_css_class("btn-primary")
+            self.gtk_btn_start.add_css_class("btn-secondary")
+            return
 
         payload = json.dumps({
             "id": task.id,

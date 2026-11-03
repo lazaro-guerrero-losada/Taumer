@@ -7,8 +7,33 @@ import sys
 import os
 from pathlib import Path
 
-# Add app directory to sys.path
-APP_DIR = Path(__file__).resolve().parent
+# Add app directory to sys.path and handle frozen bundle context
+if getattr(sys, 'frozen', False):
+    _meipass = getattr(sys, '_MEIPASS', None)
+    if _meipass and (Path(_meipass) / "app").exists():
+        APP_DIR = Path(_meipass) / "app"
+    elif _meipass:
+        APP_DIR = Path(_meipass)
+    else:
+        APP_DIR = Path(sys.executable).parent
+
+    # Setup GSettings schemas and data dirs for frozen distribution
+    schema_dir = APP_DIR / "share" / "glib-2.0" / "schemas"
+    if not schema_dir.exists() and _meipass:
+        schema_dir = Path(_meipass) / "share" / "glib-2.0" / "schemas"
+    if schema_dir.exists():
+        existing = os.environ.get("GSETTINGS_SCHEMA_DIR", "")
+        os.environ["GSETTINGS_SCHEMA_DIR"] = f"{schema_dir}:{existing}" if existing else str(schema_dir)
+
+    share_dir = APP_DIR / "share"
+    if not share_dir.exists() and _meipass:
+        share_dir = Path(_meipass) / "share"
+    if share_dir.exists():
+        existing_xdg = os.environ.get("XDG_DATA_DIRS", "")
+        os.environ["XDG_DATA_DIRS"] = f"{share_dir}:{existing_xdg}" if existing_xdg else str(share_dir)
+else:
+    APP_DIR = Path(__file__).resolve().parent
+
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 

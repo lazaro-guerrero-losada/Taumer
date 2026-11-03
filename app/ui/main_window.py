@@ -8,6 +8,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gdk
 from pathlib import Path
+from config import APP_DIR
 
 from storage import StorageManager
 from watcher import WindowWatcher
@@ -44,7 +45,7 @@ class MainWindow(Adw.ApplicationWindow):
         brand_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         brand_box.set_valign(Gtk.Align.CENTER)
         
-        logo_path = Path(__file__).resolve().parent.parent / "taumer.svg"
+        logo_path = APP_DIR / "taumer.svg"
         if logo_path.exists():
             logo_img = Gtk.Image.new_from_file(str(logo_path))
             logo_img.set_pixel_size(28)

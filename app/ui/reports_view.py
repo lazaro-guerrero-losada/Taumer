@@ -11,6 +11,7 @@ import subprocess
 from datetime import datetime
 
 from agent import RetrospectiveAgent
+from config import open_file_or_url
 
 class ReportsView(Gtk.Box):
     def __init__(self, storage):
@@ -83,10 +84,7 @@ class ReportsView(Gtk.Box):
 
     def _generate_ai_report(self, btn):
         report_path, report_content = self.agent.generate_markdown_report(self.selected_days)
-        try:
-            subprocess.Popen(["xdg-open", str(report_path)])
-        except Exception:
-            pass
+        open_file_or_url(report_path)
         self.refresh()
 
     def refresh(self):

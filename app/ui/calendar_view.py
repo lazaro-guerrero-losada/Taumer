@@ -12,8 +12,13 @@ Calendar & Time-Blocking View:
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
-gi.require_version('WebKit', '6.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib, Pango, WebKit
+try:
+    gi.require_version('WebKit', '6.0')
+    from gi.repository import WebKit
+    HAS_WEBKIT = True
+except Exception:
+    HAS_WEBKIT = False
+from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib, Pango
 from datetime import datetime, timedelta
 from pathlib import Path
 import calendar
@@ -1452,35 +1457,38 @@ class CalendarContainer(Gtk.Overlay):
         self.set_hexpand(True)
         self.set_vexpand(True)
 
-        # Bottom Layer: Ambient ASCII Engine
-        self.webview = WebKit.WebView()
-        self.webview.set_hexpand(True)
-        self.webview.set_vexpand(True)
-        settings = self.webview.get_settings()
-        settings.set_enable_webgl(True)
-        settings.set_allow_file_access_from_file_urls(True)
-        settings.set_allow_universal_access_from_file_urls(True)
-        self.webview.connect("load-changed", self._on_load_changed)
-
-        assets_dir = Path(__file__).resolve().parent / "shark_assets"
-        html_file = assets_dir / "calendar_sharks.html"
-        bg_theme = self.storage.get_settings().get("background_theme", "sharks")
-        self.webview.load_uri(f"{html_file.as_uri()}?theme={bg_theme}")
-
-        self.set_child(self.webview)
-
-        # Top Layer: Interactive Calendar View with Translucent Canvas
         self.cal_view = CalendarView(storage)
-        self.add_overlay(self.cal_view)
+
+        if HAS_WEBKIT:
+            # Bottom Layer: Ambient ASCII Engine
+            self.webview = WebKit.WebView()
+            self.webview.set_hexpand(True)
+            self.webview.set_vexpand(True)
+            settings = self.webview.get_settings()
+            settings.set_enable_webgl(True)
+            settings.set_allow_file_access_from_file_urls(True)
+            settings.set_allow_universal_access_from_file_urls(True)
+            self.webview.connect("load-changed", self._on_load_changed)
+
+            assets_dir = Path(__file__).resolve().parent / "shark_assets"
+            html_file = assets_dir / "calendar_sharks.html"
+            bg_theme = self.storage.get_settings().get("background_theme", "sharks")
+            self.webview.load_uri(f"{html_file.as_uri()}?theme={bg_theme}")
+
+            self.set_child(self.webview)
+            self.add_overlay(self.cal_view)
+        else:
+            self.webview = None
+            self.set_child(self.cal_view)
 
     def _on_load_changed(self, webview, event):
-        if event == WebKit.LoadEvent.FINISHED:
+        if HAS_WEBKIT and event == WebKit.LoadEvent.FINISHED:
             self._page_loaded = True
             bg_theme = self.storage.get_settings().get("background_theme", "sharks")
             self.set_background_theme(bg_theme)
 
     def set_background_theme(self, theme: str):
-        if not self._page_loaded:
+        if not HAS_WEBKIT or not self._page_loaded or not self.webview:
             return
         try:
             import json

@@ -1,0 +1,207 @@
+name: Release Executables
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux Executable (x86_64)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-gi \
+            python3-gi-cairo \
+            gir1.2-gtk-4.0 \
+            gir1.2-adw-1 \
+            gir1.2-webkit-6.0 \
+            liblz4-dev \
+            python3-pip \
+            python3-setuptools
+
+      - name: Install Python Dependencies
+        run: |
+          python3 -m pip install --break-system-packages pyinstaller pyyaml requests pillow lz4
+
+      - name: Build Standalone Executable with PyInstaller
+        run: |
+          pyinstaller -y taumer.spec
+
+      - name: Package Linux Distribution Archive
+        run: |
+          cp app/taumer.png dist/Taumer/
+          cp app/taumer.svg dist/Taumer/
+          cp taumer.desktop dist/Taumer/
+          cat << 'EOF' > dist/Taumer/README.txt
+          Taumer — Task & Focus Tracker
+          =============================
+
+          HOW TO RUN ON LINUX:
+          1. In this directory, run the executable:
+             ./Taumer
+
+             Or double-click the 'Taumer' application binary.
+
+          Obsidian Integration:
+          Taumer automatically syncs with your Obsidian Vault:
+          - If placed/launched inside your Obsidian Vault, it manages:
+            - Diario/ (Daily activity journals and time-tracking logs)
+            - Tareas/ (Task boards and checklists)
+            - Proyectos/ (Projects definition)
+            - Reportes/ (Daily convergence & retrospective reports)
+          - Alternatively, configure the environment variable:
+            export TAUMER_VAULT="/path/to/your/obsidian/vault"
+          EOF
+          cd dist
+          tar -czvf Taumer-Linux-x86_64.tar.gz Taumer
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Taumer-Linux-x86_64
+          path: dist/Taumer-Linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows Executable (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 UCRT64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            base-devel
+            zip
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pip
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-python-pyyaml
+            mingw-w64-ucrt-x86_64-python-requests
+            mingw-w64-ucrt-x86_64-python-pillow
+            mingw-w64-ucrt-x86_64-python-lz4
+            mingw-w64-ucrt-x86_64-pyinstaller
+
+      - name: Build Windows Executable with PyInstaller (MSYS2)
+        shell: msys2 {0}
+        run: |
+          pyinstaller -y taumer.spec
+
+      - name: Package Windows Distribution Archive
+        shell: msys2 {0}
+        run: |
+          cp app/taumer.png dist/Taumer/ || true
+          cp app/taumer.ico dist/Taumer/ || true
+          cat << 'EOF' > dist/Taumer/README.txt
+          Taumer — Task & Focus Tracker (Windows)
+          =======================================
+
+          HOW TO RUN ON WINDOWS:
+          Double-click 'Taumer.exe' to launch the application.
+
+          Obsidian Integration:
+          Taumer automatically syncs with your Obsidian Vault:
+          - If placed/launched inside your Obsidian Vault, it manages:
+            - Diario/ (Daily activity journals and time-tracking logs)
+            - Tareas/ (Task boards and checklists)
+            - Proyectos/ (Projects definition)
+            - Reportes/ (Daily convergence & retrospective reports)
+          - Alternatively, configure the environment variable:
+            set TAUMER_VAULT=C:\Path\To\Your\Vault
+          EOF
+          cd dist
+          zip -r Taumer-Windows-x64.zip Taumer
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Taumer-Windows-x64
+          path: dist/Taumer-Windows-x64.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Taumer-Linux-x86_64
+          path: release_assets
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Taumer-Windows-x64
+          path: release_assets
+
+      - name: Determine Release Tag
+        id: tag_info
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
+          else
+            echo "TAG_NAME=${{ inputs.version || 'v1.0.0' }}" >> $GITHUB_ENV
+          fi
+
+      - name: Publish GitHub Release with Binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: Taumer ${{ env.TAG_NAME }}
+          draft: false
+          prerelease: false
+          files: |
+            release_assets/Taumer-Linux-x86_64.tar.gz
+            release_assets/Taumer-Windows-x64.zip
+          body: |
+            # Taumer Release ${{ env.TAG_NAME }} 🦈
+
+            Native Task, Focus & Workday Tracker with Seamless Obsidian Integration.
+
+            ### 📦 Download Executables
+
+            - **Windows (x64)**: [`Taumer-Windows-x64.zip`](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/Taumer-Windows-x64.zip)
+              - Unzip the archive and double-click `Taumer.exe`.
+            - **Linux (x86_64)**: [`Taumer-Linux-x86_64.tar.gz`](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/Taumer-Linux-x86_64.tar.gz)
+              - Extract and launch `./Taumer`.
+
+            ---
+
+            ### ✨ Key Features Included
+            - **Focus Space**: Real-time timer and stopwatch with task and project linking.
+            - **Workday Attendance**: Check-in and check-out tracking with goal convergence metrics.
+            - **Apple-Style Task Board**: Categorized backlog with priority tags and estimates.
+            - **Interactive Timeline (Calendar)**: Precise minute-level planning and drag-and-drop scheduling.
+            - **Obsidian Vault Sync**: Zero lock-in, pure Markdown frontmatter synchronization.
+            - **Activity & Window Watcher**: Background activity and tab tracking with offline database cache.
