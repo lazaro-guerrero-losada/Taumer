@@ -17,7 +17,19 @@
 
 ---
 
-Taumer is a high-performance, native Linux productivity application built with **Python 3, GTK 4, Libadwaita, and WebKitGTK 6.0**. It combines deep-work focus sessions, visual time-blocking on a true-time canvas, automated window activity monitoring, and bidirectional **Obsidian Markdown** synchronization into an interface engineered around Apple Human Interface Guidelines and ASCII art aesthetics.
+Taumer is a high-performance, native productivity application built with **Python 3, GTK 4, Libadwaita, and WebKitGTK 6.0**. It combines deep-work focus sessions, visual time-blocking on a true-time canvas, automated window activity monitoring, and bidirectional **Obsidian Markdown** synchronization into an interface engineered around Apple Human Interface Guidelines and ASCII art aesthetics.
+
+---
+
+## 📥 Download Standalone Releases
+
+Pre-compiled, standalone binaries are available on the [**GitHub Releases**](https://github.com/lazaro-guerrero-losada/Taumer/releases) page:
+
+- **Linux (x86_64)**: [**`Taumer-Linux-x86_64.tar.gz`**](https://github.com/lazaro-guerrero-losada/Taumer/releases/download/v1.0.0/Taumer-Linux-x86_64.tar.gz)
+  - Fully self-contained bundle with GTK 4, Libadwaita, and WebKit typelibs included. Extract and run `./Taumer`.
+- **Windows (x64)**: [**`Taumer-Windows-x64.zip`**](https://github.com/lazaro-guerrero-losada/Taumer/releases)
+  - Native Windows executable with background window tracker and Obsidian integration. Extract and launch `Taumer.exe`.
+
 
 ---
 
