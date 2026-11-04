@@ -7,6 +7,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gdk, GLib
+import sys
 import re
 from datetime import datetime, timedelta
 from models import Task, JournalEntry, Project
@@ -1370,6 +1371,17 @@ class SettingsDialog(Gtk.Window):
         lbl_sec_bg.add_css_class("text-muted")
         lbl_sec_bg.set_halign(Gtk.Align.START)
         sec_bg.append(lbl_sec_bg)
+
+        if sys.platform == "win32":
+            win_note_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            win_note_box.add_css_class("badge")
+            lbl_win_note = Gtk.Label(
+                label="Windows Mode: ASCII animals are currently OFF (WebKitGTK is Linux-exclusive). All focus timers and Obsidian logging are fully active."
+            )
+            lbl_win_note.set_wrap(True)
+            lbl_win_note.set_halign(Gtk.Align.START)
+            win_note_box.append(lbl_win_note)
+            sec_bg.append(win_note_box)
 
         self.bg_themes = [
             ("sharks", "Sharks", "Classic ocean sharks (Hammerhead, Thresher, Mako) swimming with schooling fish."),

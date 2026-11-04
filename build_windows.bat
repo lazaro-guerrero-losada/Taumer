@@ -22,6 +22,9 @@ if exist "dist\Taumer\Taumer.exe" (
     copy /Y "app\taumer.png" "dist\Taumer\" >nul 2>&1
     echo Taumer — Task ^& Focus Tracker (Windows) > "dist\Taumer\README.txt"
     echo Double-click Taumer.exe to launch! >> "dist\Taumer\README.txt"
+    echo. >> "dist\Taumer\README.txt"
+    echo NOTE: On Windows, ASCII marine animations are OFF (WebKitGTK is Linux-exclusive). >> "dist\Taumer\README.txt"
+    echo All focus timers, stopwatches, task boards, calendar, and Obsidian sync are fully functional. >> "dist\Taumer\README.txt"
     powershell -Command "Compress-Archive -Path 'dist\Taumer' -DestinationPath 'dist\Taumer-Windows-x64.zip' -Force"
     echo.
     echo ========================================================

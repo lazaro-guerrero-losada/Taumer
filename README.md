@@ -30,6 +30,10 @@ Pre-compiled, standalone binaries are available on the [**GitHub Releases**](htt
 - **Windows (x64)**: [**`Taumer-Windows-x64.zip`**](https://github.com/lazaro-guerrero-losada/Taumer/releases)
   - Native Windows executable with background window tracker and Obsidian integration. Extract and launch `Taumer.exe`.
 
+> [!NOTE]
+> **Windows Compatibility & ASCII Marine Animations**:
+> The animated ASCII marine creatures (sharks, turtles, mantas, jellyfish) are rendered via WebKitGTK 6.0, which is exclusive to Linux. On Windows, Taumer automatically runs in **Windows Native Mode** with ASCII animals turned **OFF**, keeping 100% of the focus stopwatch, workday attendance tracking, task boards, timeline time-blocking, and bidirectional Obsidian markdown synchronization fully functional and native.
+
 
 ---
 

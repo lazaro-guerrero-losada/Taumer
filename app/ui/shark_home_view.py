@@ -135,12 +135,31 @@ class SharkHomeView(Gtk.Box):
         card.set_margin_start(32)
         card.set_margin_end(32)
 
-        # Header tag
-        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        # Header tag and Windows Mode indicator
+        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         tag = Gtk.Label(label="FOCUS SPACE")
         tag.add_css_class("badge")
         top_box.append(tag)
+
+        mode_badge = Gtk.Label(label="Windows Mode • ASCII Animals: OFF")
+        mode_badge.add_css_class("badge")
+        mode_badge.set_hexpand(True)
+        mode_badge.set_halign(Gtk.Align.END)
+        top_box.append(mode_badge)
         card.append(top_box)
+
+        # Explanatory notice
+        notice_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        notice_box.set_margin_top(2)
+        notice_box.set_margin_bottom(6)
+        lbl_info = Gtk.Label(
+            label="In Windows, ASCII marine animations are turned off (WebKitGTK is Linux-exclusive). All focus timers, task boards, and Obsidian journal sync are fully active."
+        )
+        lbl_info.add_css_class("text-muted")
+        lbl_info.set_wrap(True)
+        lbl_info.set_justify(Gtk.Justification.CENTER)
+        notice_box.append(lbl_info)
+        card.append(notice_box)
 
         # Large Elapsed Timer Display
         self.gtk_timer_lbl = Gtk.Label(label="00:00:00")
